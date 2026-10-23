@@ -1,15 +1,16 @@
 :root {
-  --bg: #0f1419;
-  --surface: #161d24;
-  --surface-alt: #1c252e;
-  --border: #2a3642;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --accent: #3fb950;
-  --accent-blue: #58a6ff;
-  --warn: #d29922;
-  --danger: #f85149;
-  --code-bg: #0b0f14;
+  color-scheme: light;
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-alt: #f1f5f9;
+  --border: #cbd5e1;
+  --text: #172033;
+  --muted: #475569;
+  --accent: #15803d;
+  --accent-blue: #2563eb;
+  --warn: #a16207;
+  --danger: #dc2626;
+  --code-bg: #f8fafc;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -168,7 +169,7 @@ h3 {
 
 .tab-btn.active {
   background: var(--accent-blue);
-  color: #0b0f14;
+  color: #ffffff;
   border-color: var(--accent-blue);
 }
 
