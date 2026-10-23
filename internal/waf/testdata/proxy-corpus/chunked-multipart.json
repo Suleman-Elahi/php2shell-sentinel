@@ -1,0 +1,11 @@
+{
+  "name": "chunked multipart body",
+  "method": "POST",
+  "path": "/index.php",
+  "headers": {
+    "Content-Type": "multipart/form-data; boundary=corpus"
+  },
+  "body": "--corpus\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"photo.jpg\"\r\n\r\nsafe-marker\r\n--corpus--\r\n",
+  "chunked": true,
+  "rule_id": "P2S-2026105"
+}

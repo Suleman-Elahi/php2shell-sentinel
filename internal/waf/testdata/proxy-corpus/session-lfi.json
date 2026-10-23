@@ -1,0 +1,6 @@
+{
+  "name": "session file inclusion",
+  "method": "GET",
+  "path": "/index.php?page=../../../../var/lib/php/sessions/sess_safe123",
+  "rule_id": "P2S-2026106"
+}

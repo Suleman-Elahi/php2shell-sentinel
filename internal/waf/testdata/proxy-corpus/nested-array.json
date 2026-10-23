@@ -1,0 +1,10 @@
+{
+  "name": "deep nested multipart field",
+  "method": "POST",
+  "path": "/index.php",
+  "headers": {
+    "Content-Type": "multipart/form-data; boundary=corpus"
+  },
+  "body": "--corpus\r\nContent-Disposition: form-data; name=\"a[][a][a][a][a][a][a][a][a]\"; filename=\"\"\r\n\r\nsafe-marker\r\n--corpus--\r\n",
+  "rule_id": "P2S-2026107-DEPTH"
+}
