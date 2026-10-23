@@ -241,13 +241,18 @@ curl -s http://127.0.0.1:9095/status</pre>
         </tbody>
       </table>
       <p style="color:var(--muted);">
-        <strong>Limitations:</strong> process polling (150ms) can miss a very
-        short-lived <code>system('id')</code> child, though it catches longer-lived
-        shells. Application output that prints <code>PHP_VERSION</code> is not
-        rewritten by Sentinel. A scanner may report <code>INCONCLUSIVE</code> when
-        its probe is rejected with <code>403</code>; that is expected — the probe
-        never reached PHP. Sentinel is mitigation, not a substitute for patching PHP
-        and disabling <code>session.upload_progress.enabled</code>.
+        <strong>Limitations:</strong> normal process sampling runs every 150ms;
+        a malicious WAF finding triggers a 10ms burst for 5s so short-lived
+        <code>system('id')</code> children are far more likely to be caught.
+        Common PHP version strings are scrubbed from small, uncompressed
+        text/JSON/XML responses (<code>scrub_php_version_in_body</code>), but
+        large, compressed, or non-text output is still application-owned.
+        A scanner may report <code>INCONCLUSIVE</code> when its probe is
+        rejected with <code>403</code>; that is expected — the probe never
+        reached PHP. The 3-probe/60s quarantine is configurable
+        (<code>probe_threshold</code>, <code>probe_window</code>). Sentinel is
+        mitigation, not a substitute for patching PHP and disabling
+        <code>session.upload_progress.enabled</code>.
       </p>
     </section>
 
@@ -268,7 +273,7 @@ curl -s http://127.0.0.1:9095/status</pre>
         <tbody>
           <tr>
             <td><strong>Blocking Spawned Shells</strong></td>
-            <td>Scans OS process tree (<code>/proc</code> on Linux, Win32 <code>CreateToolhelp32Snapshot</code> on Windows) every 150ms and kills shells (<code>sh</code>, <code>bash</code>, <code>cmd.exe</code>, <code>powershell.exe</code>, <code>nc</code>, <code>curl</code>) spawned by PHP workers.</td>
+            <td>Scans OS process tree (<code>/proc</code> on Linux, Win32 <code>CreateToolhelp32Snapshot</code> on Windows) every 150ms, with a 10ms burst for 5s after a WAF finding and kills shells (<code>sh</code>, <code>bash</code>, <code>cmd.exe</code>, <code>powershell.exe</code>, <code>nc</code>, <code>curl</code>) spawned by PHP workers.</td>
             <td><strong>No</strong></td>
           </tr>
           <tr>
@@ -398,12 +403,17 @@ netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel</pre>
           <tr>
             <td><code>P2S-2026107</code> / <code>108</code></td>
             <td>Scanner / Heap Shape</td>
-            <td>Blocks <code>a[][a][a]...</code> nested bracket probes and empty-boundary discrepancy probes; auto-bans after 3 probes/60s.</td>
+            <td>Blocks <code>a[][a][a]...</code> nested bracket probes and empty-boundary discrepancy probes; auto-bans after 3 probes/60s (configurable).</td>
           </tr>
           <tr>
             <td><code>P2S-2026109</code> / <code>111</code> / <code>112</code></td>
             <td>Pure HTTP ASLR Bypass &amp; Response Guard</td>
             <td>Blocks forged binary <code>Cookie: PHPSESSID</code> pointers, scrubs 800KB <code>Set-Cookie: PHPSESSID</code> heap leaks, and quarantines <code>Session object destruction failed</code> / PHP OOM responses.</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026116</code></td>
+            <td>Version Disclosure Scrub</td>
+            <td>Replaces <code>PHP 8.x.y</code> / <code>PHP Version 8.x.y</code> strings in small, uncompressed text, JSON, and XML responses and fixes <code>Content-Length</code>.</td>
           </tr>
           <tr>
             <td><code>P2S-20244577</code></td>

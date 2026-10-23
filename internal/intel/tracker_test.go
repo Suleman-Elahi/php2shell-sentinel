@@ -7,6 +7,37 @@ import (
 	"github.com/legacy-php-sentinel/php2shell-sentinel/internal/intel"
 )
 
+func TestTracker_ConfigurableProbeEscalation(t *testing.T) {
+	now := time.Now().UTC()
+	tr := intel.NewTracker(50, 100, 2, 100, 10*time.Minute, 128)
+	tr.SetProbeEscalation(5, 5*time.Minute)
+
+	ip := "198.51.100.77"
+	for i := 0; i < 4; i++ {
+		if banned, _ := tr.AddRisk(ip, 10, "P2S-2026107", now.Add(time.Duration(i)*30*time.Second)); banned {
+			t.Fatalf("expected no ban before the configured 5-probe threshold (probe %d)", i+1)
+		}
+	}
+
+	// The widened 5-minute window keeps all probes in one bucket even though
+	// they are spread across 120 seconds.
+	if banned, score := tr.AddRisk(ip, 10, "P2S-2026107", now.Add(120*time.Second)); !banned {
+		t.Fatalf("expected 5th probe to escalate at the configured threshold (score=%d)", score)
+	}
+}
+
+func TestTracker_DefaultProbeThresholdRemainsThree(t *testing.T) {
+	now := time.Now().UTC()
+	tr := intel.NewTracker(50, 100, 2, 100, 10*time.Minute, 128)
+
+	ip := "198.51.100.78"
+	tr.AddRisk(ip, 10, "P2S-2026107", now)
+	tr.AddRisk(ip, 10, "P2S-2026107", now.Add(time.Second))
+	if banned, _ := tr.AddRisk(ip, 10, "P2S-2026107", now.Add(2*time.Second)); !banned {
+		t.Fatal("expected default 3-probe escalation to remain in effect")
+	}
+}
+
 func TestTracker_WorkerPinningAndReconEscalation(t *testing.T) {
 	now := time.Now().UTC()
 	tr := intel.NewTracker(50, 100, 2, 100, 10*time.Minute, 128)

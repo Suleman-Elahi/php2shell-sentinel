@@ -67,6 +67,7 @@ func New(cfg *config.Config, logger *audit.Logger) (*Agent, error) {
 		cfg.BanDuration,
 		cfg.MaxTrackedIPs,
 	)
+	tracker.SetProbeEscalation(cfg.ProbeThreshold, cfg.ProbeWindow)
 
 	var shield *waf.ShieldProxy
 	if cfg.ProxyEnabled {
@@ -77,7 +78,7 @@ func New(cfg *config.Config, logger *audit.Logger) (*Agent, error) {
 		}
 	}
 
-	return &Agent{
+	agent := &Agent{
 		cfg:          cfg,
 		logger:       logger,
 		tracker:      tracker,
@@ -87,7 +88,13 @@ func New(cfg *config.Config, logger *audit.Logger) (*Agent, error) {
 		logTailer:    logwatch.NewTailer(cfg, tracker, logger),
 		fwEnforcer:   firewall.NewEnforcer(cfg, tracker, logger),
 		startedAt:    time.Now().UTC(),
-	}, nil
+	}
+
+	if agent.proxy != nil && cfg.ProcWatchEnabled {
+		agent.proxy.SetSuspicionHook(agent.procWatcher.TriggerBurst)
+	}
+
+	return agent, nil
 }
 
 // Run starts all enabled sentinel subsystems and blocks until ctx is cancelled.

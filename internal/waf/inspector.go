@@ -53,7 +53,22 @@ var (
 
 	// Matches PHP OOM fatal error in response body
 	phpOOMResponseRegex = regexp.MustCompile(`Allowed memory size of \d+ bytes exhausted`)
+
+	// Matches common PHP version disclosure formats in response bodies
+	// (for example "PHP 8.2.34", "PHP/8.2.34", "PHP Version 8.2.34").
+	phpVersionInBodyRegex = regexp.MustCompile(`(?i)\bPHP(?:/|\s+Version\s+|\s+)\d+\.\d+\.\d+\b`)
 )
+
+// scrubPHPVersionFromBody replaces common PHP version strings with a neutral
+// placeholder. It is intentionally limited to small, uncompressed text
+// responses by the caller so it cannot corrupt binary or streamed payloads.
+func scrubPHPVersionFromBody(body []byte) ([]byte, bool) {
+	if !phpVersionInBodyRegex.Match(body) {
+		return body, false
+	}
+	out := phpVersionInBodyRegex.ReplaceAll(body, []byte("PHP x.x.x"))
+	return out, !bytes.Equal(out, body)
+}
 
 // Inspector performs deep, low-allocation inspection of HTTP requests and responses
 // for all known CVE-2026-109618, CVE-2026-109619, and CVE-2024-4577 exploit chains.

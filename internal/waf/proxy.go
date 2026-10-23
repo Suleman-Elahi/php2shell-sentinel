@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/legacy-php-sentinel/php2shell-sentinel/internal/audit"
@@ -20,11 +21,12 @@ import (
 
 // ShieldProxy wraps an HTTP ReverseProxy with the php2shell Inspector and Behavioral Tracker.
 type ShieldProxy struct {
-	cfg       *config.Config
-	inspector *Inspector
-	tracker   *intel.Tracker
-	logger    *audit.Logger
-	proxy     *httputil.ReverseProxy
+	cfg         *config.Config
+	inspector   *Inspector
+	tracker     *intel.Tracker
+	logger      *audit.Logger
+	proxy       *httputil.ReverseProxy
+	onSuspicion func()
 }
 
 // NewShieldProxy constructs a high-performance reverse proxy shield in front of a PHP backend.
@@ -70,6 +72,12 @@ func NewShieldProxy(cfg *config.Config, tracker *intel.Tracker, logger *audit.Lo
 	rp.ErrorHandler = sp.handleProxyError
 
 	return sp, nil
+}
+
+// SetSuspicionHook registers a callback invoked when the WAF detects a
+// malicious request. It must be called before the proxy starts serving traffic.
+func (sp *ShieldProxy) SetSuspicionHook(fn func()) {
+	sp.onSuspicion = fn
 }
 
 // ServeHTTP intercepts every incoming HTTP request before it can reach PHP.
@@ -189,6 +197,13 @@ func (sp *ShieldProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			RiskScore: totalScore,
 		})
 
+		// A malicious request may be the first stage of an exec chain. Ask the
+		// process watchdog to sample the tree at high frequency for a short
+		// window so short-lived children are not missed between normal polls.
+		if sp.onSuspicion != nil {
+			sp.onSuspicion()
+		}
+
 		if mitigated {
 			w.Header().Set("X-Blocked-By", "php2shell-sentinel")
 			w.Header().Set("X-Sentinel-Rule", finding.RuleID)
@@ -211,13 +226,31 @@ func (sp *ShieldProxy) modifyResponse(resp *http.Response) error {
 
 	// Read up to 64 KiB of the response body to check for PHP OOM / Session Destruction errors
 	var preview []byte
+	bodyComplete := false
 	if resp.Body != nil {
 		buf := make([]byte, 64*1024)
 		n, err := io.ReadFull(resp.Body, buf)
 		if n > 0 {
 			preview = buf[:n]
 		}
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		bodyComplete = err == io.EOF || err == io.ErrUnexpectedEOF
+
+		// Scrub common PHP version disclosures from small, uncompressed text
+		// responses (for example pages that print PHP_VERSION directly).
+		if bodyComplete && sp.cfg.ScrubPHPVersionInBody &&
+			resp.Header.Get("Content-Encoding") == "" &&
+			isTextResponse(resp.Header.Get("Content-Type")) {
+			if scrubbed, changed := scrubPHPVersionFromBody(preview); changed {
+				preview = scrubbed
+				if resp.ContentLength >= 0 {
+					resp.ContentLength = int64(len(preview))
+					resp.Header.Set("Content-Length", strconv.Itoa(len(preview)))
+				}
+				sp.logVersionScrub(resp)
+			}
+		}
+
+		if bodyComplete {
 			resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(preview))
 		} else if n > 0 {
@@ -289,6 +322,42 @@ func (sp *ShieldProxy) modifyResponse(resp *http.Response) error {
 	}
 
 	return nil
+}
+
+func isTextResponse(contentType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if ct == "" {
+		return false
+	}
+	return strings.HasPrefix(ct, "text/") ||
+		strings.Contains(ct, "json") ||
+		strings.Contains(ct, "xml")
+}
+
+func (sp *ShieldProxy) logVersionScrub(resp *http.Response) {
+	clientIP := ""
+	method := ""
+	path := ""
+	if resp.Request != nil {
+		clientIP = intel.ExtractClientIP(resp.Request)
+		method = resp.Request.Method
+		if resp.Request.URL != nil {
+			path = resp.Request.URL.Path
+		}
+	}
+
+	sp.logger.Metrics().ResponsesScrubbed.Add(1)
+	sp.logger.Log(audit.Event{
+		Severity:  audit.SeverityInfo,
+		Component: "waf-response",
+		Action:    "version_scrubbed",
+		RuleID:    "P2S-2026116",
+		ClientIP:  clientIP,
+		Method:    method,
+		Path:      path,
+		Message:   "common PHP version string scrubbed from response body",
+		Mitigated: sp.cfg.Mode == config.ModeBlock,
+	})
 }
 
 func (sp *ShieldProxy) handleProxyError(w http.ResponseWriter, r *http.Request, err error) {

@@ -40,6 +40,10 @@ type Watcher struct {
 	blockNames map[string]struct{}
 	mu         sync.Mutex
 	alertedPID map[int]time.Time
+
+	burstMu    sync.Mutex
+	burstUntil time.Time
+	burstCh    chan struct{}
 }
 
 // NewWatcher creates a cross-platform process tree and memory watchdog.
@@ -60,6 +64,7 @@ func NewWatcher(cfg *config.Config, logger *audit.Logger) *Watcher {
 		phpNames:   phpSet,
 		blockNames: blockSet,
 		alertedPID: make(map[int]time.Time, 64),
+		burstCh:    make(chan struct{}, 1),
 	}
 }
 
@@ -70,21 +75,54 @@ func (w *Watcher) SetEnumeratorAndKiller(enum ProcessEnumerator, killer ProcessK
 }
 
 // Run polls the process tree at ProcPollInterval until ctx is cancelled.
+// A WAF finding calls TriggerBurst, which temporarily switches to the much
+// faster ProcBurstInterval so short-lived commands (for example
+// system('id')) are far more likely to be observed before they exit.
 func (w *Watcher) Run(ctx context.Context) {
 	interval := w.cfg.ProcPollInterval
 	if interval <= 0 {
 		interval = 150 * time.Millisecond
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 
 	for {
 		w.ScanOnce()
+
+		poll := interval
+		w.burstMu.Lock()
+		if !w.burstUntil.IsZero() && time.Now().Before(w.burstUntil) {
+			poll = w.cfg.ProcBurstInterval
+			if poll <= 0 {
+				poll = 10 * time.Millisecond
+			}
+		}
+		w.burstMu.Unlock()
+
+		timer := time.NewTimer(poll)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-w.burstCh:
+			// A suspicious request was detected; rescan immediately.
+			timer.Stop()
+		case <-timer.C:
 		}
+	}
+}
+
+// TriggerBurst enables high-frequency process sampling for ProcBurstWindow.
+// It is safe to call from any goroutine and never blocks.
+func (w *Watcher) TriggerBurst() {
+	w.burstMu.Lock()
+	w.burstUntil = time.Now().Add(w.cfg.ProcBurstWindow)
+	if w.cfg.ProcBurstWindow <= 0 {
+		w.burstUntil = time.Now().Add(5 * time.Second)
+	}
+	w.burstMu.Unlock()
+
+	select {
+	case w.burstCh <- struct{}{}:
+	default:
 	}
 }
 

@@ -52,6 +52,7 @@ type Config struct {
 	StripUploadProgress     bool          `json:"strip_upload_progress"`
 	StripPoweredBy          bool          `json:"strip_powered_by"`
 	InspectResponses        bool          `json:"inspect_responses"`
+	ScrubPHPVersionInBody   bool          `json:"scrub_php_version_in_body"`
 	MaxSessionIDCookieLen   int           `json:"max_session_id_cookie_len"`
 	AllowedUploadPaths      []string      `json:"allowed_upload_paths"`
 
@@ -61,6 +62,8 @@ type Config struct {
 	BanThresholdScore  int           `json:"ban_threshold_score"`
 	BanDuration        time.Duration `json:"ban_duration"`
 	MaxTrackedIPs      int           `json:"max_tracked_ips"`
+	ProbeThreshold     int           `json:"probe_threshold"`
+	ProbeWindow        time.Duration `json:"probe_window"`
 	FirewallBanEnabled bool          `json:"firewall_ban_enabled"`
 
 	// Session File Guard Settings
@@ -74,6 +77,8 @@ type Config struct {
 	// Process & Memory Watchdog Settings
 	ProcWatchEnabled   bool          `json:"proc_watch_enabled"`
 	ProcPollInterval   time.Duration `json:"proc_poll_interval"`
+	ProcBurstInterval  time.Duration `json:"proc_burst_interval"`
+	ProcBurstWindow    time.Duration `json:"proc_burst_window"`
 	KillSuspiciousExec bool          `json:"kill_suspicious_exec"`
 	MaxWorkerRSSMB     uint64        `json:"max_worker_rss_mb"`
 	PHPProcessNames    []string      `json:"php_process_names"`
@@ -120,6 +125,7 @@ func Default() *Config {
 		StripUploadProgress:     true,
 		StripPoweredBy:          true,
 		InspectResponses:        true,
+		ScrubPHPVersionInBody:   true,
 		MaxSessionIDCookieLen:   64, // Blocks 800KB PHPSESSID heap/ASLR leak in Set-Cookie
 		AllowedUploadPaths:      []string{},
 		RateLimitPerSecond:      40.0,
@@ -127,6 +133,8 @@ func Default() *Config {
 		BanThresholdScore:       100,
 		BanDuration:             15 * time.Minute,
 		MaxTrackedIPs:           8192,
+		ProbeThreshold:          3,
+		ProbeWindow:             60 * time.Second,
 		FirewallBanEnabled:      false,
 		SessionGuardEnabled:     true,
 		SessionDirs:             defaultSessionDirs(),
@@ -136,6 +144,8 @@ func Default() *Config {
 		DeletePoisonedSess:      true,
 		ProcWatchEnabled:        true,
 		ProcPollInterval:        150 * time.Millisecond,
+		ProcBurstInterval:       10 * time.Millisecond,
+		ProcBurstWindow:         5 * time.Second,
 		KillSuspiciousExec:      true,
 		MaxWorkerRSSMB:          0, // 0 = disabled unless configured
 		PHPProcessNames:         defaultPHPProcessNames(),
@@ -417,6 +427,18 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxTrackedIPs <= 0 {
 		c.MaxTrackedIPs = 8192
+	}
+	if c.ProbeThreshold <= 0 {
+		c.ProbeThreshold = 3
+	}
+	if c.ProbeWindow <= 0 {
+		c.ProbeWindow = 60 * time.Second
+	}
+	if c.ProcBurstInterval <= 0 {
+		c.ProcBurstInterval = 10 * time.Millisecond
+	}
+	if c.ProcBurstWindow <= 0 {
+		c.ProcBurstWindow = 5 * time.Second
 	}
 	return nil
 }

@@ -51,6 +51,7 @@ reported at startup as `backend_unreachable` and would return `502` to clients.
    - **SID 2026107 & 2026108 (`P2S-2026107` / `P2S-2026108`)**: Detects `php2shell-scanner` / `php2shell-checker` probes (`boundary=` empty value, malformed `Content-Disposition:name=a;filename=`, and 62+ nested array brackets `a[][a][a]...`).
    - **SID 2026109 (`P2S-2026109` — ASLR Bypass Stage B1/B2)**: Blocks forged binary/URL-encoded `Cookie: PHPSESSID` values containing null bytes, non-ASCII pointers, or lengths `> 64` bytes.
    - **SID 2026111 & 2026112 (`P2S-2026111` / `P2S-2026112` — Response Guard)**: Scrubs `X-Powered-By`, intercepts `Set-Cookie: PHPSESSID` heap/ASLR leaks (`800 KB` uninitialized `ZendMM` chunk leak), and suppresses `Allowed memory size ... in Unknown on line 0` / `Session object destruction failed` responses while immediately banning the source IP.
+   - **SID 2026116 (`P2S-2026116` — Version Scrub)**: Replaces common PHP version strings (`PHP 8.2.34`, `PHP/8.2.34`, `PHP Version 8.2.34`) in small (≤ 64 KiB), uncompressed `text/*`, JSON, or XML response bodies, adjusting `Content-Length` in place. Requires `inspect_responses` and is controlled by `scrub_php_version_in_body` (default `true`).
    - **CVE-2024-4577 (`P2S-20244577`)**: Blocks Windows/Linux PHP-CGI argument injection (`%ADd`, `allow_url_include`, `auto_prepend_file`).
 
 2. **Layer 2 — Behavioral Threat Intelligence & OS Firewall Enforcer (`internal/intel`, `internal/firewall`)**
@@ -61,7 +62,7 @@ reported at startup as `backend_unreachable` and would return `502` to clients.
    - Incrementally scans Linux (`/var/lib/php/sessions`, `/tmp`) and Windows (`C:\Windows\Temp`, `C:\xampp\tmp`, `C:\laragon\tmp`) session directories using an `mtime + size` cache.
 
 4. **Layer 4 — Native Cross-Platform Process Tree & RSS Watchdog (`internal/procwatch`)**
-   - Uses native `/proc` parsing on Linux and `CreateToolhelp32Snapshot` (`kernel32.dll`) on Windows.
+   - Uses native `/proc` parsing on Linux and `CreateToolhelp32Snapshot` (`kernel32.dll`) on Windows. Normal sampling is 150ms; a malicious WAF finding triggers a 10ms burst scan for 5s (`proc_burst_interval`, `proc_burst_window`) so short-lived `system('id')` children are far more likely to be caught.
 
 5. **Layer 5 — Error Log / OS Journal Tailer & `php.ini` Auto-Hardener (`internal/logwatch`, `internal/hardener`)**
    - Monitors log files + Linux `journalctl` / Windows `wevtutil` Application Event Log and hardens `php.ini` files (`session.upload_progress.enabled = Off`, `session.use_only_cookies = On`) with timestamped backups.
@@ -83,6 +84,8 @@ then with the same requests routed through Sentinel.
 | `php2shell-scanner`, no Sentinel | **VULNERABLE** |
 | `php2shell-scanner` through Sentinel | **BLOCKED** — `403 P2S-2026107-SCAN` (scanner reports `INCONCLUSIVE` on the rejected probe) |
 | Rule-by-rule WAF matrix | **19/19 PASS** |
+| Response-body version scrub | **PASS** — `PHP x.x.x`, `Content-Length` recalculated |
+| Adaptive process burst sampling | **PASS** — 10ms/5s after a WAF finding |
 | Process watchdog | **PASS** — killed long-lived shell children, `P2S-PROC-EXEC` |
 | Session-file guard | **PASS** — removed/quarantined poisoned `sess_*` files |
 | `php.ini` hardener | **PASS** — `upload_progress=Off`, `use_only_cookies=On`, backup created |
@@ -211,20 +214,25 @@ netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel
 - **Sentinel is mitigation, not a PHP patch.** Keep
   `session.upload_progress.enabled = Off` and upgrade to a fixed PHP release
   (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12+ for the affected lines).
-- **Process scanning is sample-based.** The default 150ms polling interval can
-  miss a very short-lived command such as `system('id')`, while reliably
-  catching longer-lived shells and reverse-connection helpers. The WAF and
-  php.ini hardening are the primary controls.
-- **Response-body version disclosure is application-owned.** Sentinel strips
-  `X-Powered-By` and quarantines known heap/OOM response leaks, but it does not
-  rewrite arbitrary application output. Do not print `PHP_VERSION` in
-  production pages; disable `display_errors` and patch the runtime.
+- **Process scanning is sample-based.** Normal sampling runs every 150ms and
+  can still miss a process that starts and exits inside one interval. To narrow
+  that gap, any malicious WAF finding triggers a burst scan every 10ms for 5s
+  (`proc_burst_interval` / `proc_burst_window`). The WAF and php.ini hardening
+  remain the primary controls.
+- **Response-body version disclosure is scrubbed, not eliminated.** Sentinel
+  strips `X-Powered-By`, quarantines known heap/OOM response leaks, and rewrites
+  common PHP version strings in small (≤ 64 KiB), uncompressed `text/*`, JSON,
+  or XML bodies (`scrub_php_version_in_body`, default `true`). Large, compressed,
+  or non-text responses are not rewritten, so applications should still avoid
+  printing `PHP_VERSION`, disable `display_errors`, and patch the runtime.
 - **A blocked probe can look "inconclusive" to scanners.** `php2shell-scanner`
   reports `INCONCLUSIVE` when it receives Sentinel's `403` instead of a PHP
   crash/response. That is expected: the probe never reached PHP. Use Sentinel's
   rule IDs and logs as the source of truth.
-- **The 3-probe/60s auto-ban is intentional.** Sequential rule-by-rule testing
-  requires a fresh process state, or the ban will mask later rule IDs.
+- **The 3-probe/60s auto-ban is tunable.** Defaults remain 3 probes within 60s
+  and a 100-point ban threshold. Sequential rule-by-rule testing can raise
+  `probe_threshold`, widen `probe_window`, or raise `ban_threshold_score`
+  without disabling quarantine entirely.
 - **Keep the status API local.** If `status_addr` is exposed remotely, enable
   `status_allow_remote` and configure `status_auth_token`; `DELETE /bans` stays
   disabled without a token.

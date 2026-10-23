@@ -39,6 +39,8 @@ type Tracker struct {
 	banThresholdScore int
 	banDuration       time.Duration
 	maxTrackedIPs     int
+	probeThreshold    int
+	probeWindow       time.Duration
 }
 
 // NewTracker constructs a bounded behavioral threat intelligence tracker.
@@ -69,6 +71,23 @@ func NewTracker(ratePerSec float64, burst, maxConcurrentMP, banThresholdScore in
 		banThresholdScore: banThresholdScore,
 		banDuration:       banDuration,
 		maxTrackedIPs:     maxTrackedIPs,
+		probeThreshold:    3,
+		probeWindow:       60 * time.Second,
+	}
+}
+
+// SetProbeEscalation tunes the reconnaissance-probe escalation policy. A value
+// <= 0 leaves the current setting unchanged. Raising the threshold or widening
+// the window makes rule-by-rule scanner testing possible without disabling the
+// auto-ban entirely.
+func (t *Tracker) SetProbeEscalation(threshold int, window time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if threshold > 0 {
+		t.probeThreshold = threshold
+	}
+	if window > 0 {
+		t.probeWindow = window
 	}
 }
 
@@ -161,13 +180,13 @@ func (t *Tracker) AddRisk(ip string, points int, reason string, now time.Time) (
 	st.LastSeen = now
 
 	// Track reconnaissance probe frequency (SID 2026115: 3 probes within 60s escalates immediately)
-	if now.Sub(st.FirstProbeInWindow) > 60*time.Second {
+	if now.Sub(st.FirstProbeInWindow) > t.probeWindow {
 		st.FirstProbeInWindow = now
 		st.ProbesInWindow = 1
 	} else {
 		st.ProbesInWindow++
 	}
-	if st.ProbesInWindow >= 3 && st.Score < t.banThresholdScore {
+	if st.ProbesInWindow >= t.probeThreshold && st.Score < t.banThresholdScore {
 		st.Score = t.banThresholdScore
 		reason = "repeated php2shell probing (" + reason + ")"
 	}

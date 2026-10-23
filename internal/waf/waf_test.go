@@ -5,7 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -314,6 +316,73 @@ func TestShieldProxy_ResponseGuardBlocksASLRHeapLeakAndOOM(t *testing.T) {
 			t.Fatalf("expected error output to be scrubbed from response body")
 		}
 	})
+}
+
+func TestShieldProxy_SuspicionHookFiresOnMaliciousRequest(t *testing.T) {
+	shield, _, _ := newTestShield(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	var calls int32
+	shield.SetSuspicionHook(func() { atomic.AddInt32(&calls, 1) })
+
+	body := "-----b\r\nContent-Disposition: form-data; name=\"PHP_SESSION_UPLOAD_PROGRESS\"\r\n\r\npwn\r\n-----b--\r\n"
+	req := httptest.NewRequest(http.MethodPost, "http://sentinel.local/index.php", strings.NewReader(body))
+	req.RemoteAddr = "192.0.2.60:1111"
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=---b")
+	rec := httptest.NewRecorder()
+	shield.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("expected suspicion hook to fire once, got %d", got)
+	}
+}
+
+func TestShieldProxy_ScrubsPHPVersionFromTextResponseBody(t *testing.T) {
+	shield, _, _ := newTestShield(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<p>PHP 8.2.34 / PHP/8.2.34 / PHP Version 8.2.34</p>"))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://sentinel.local/index.php", nil)
+	req.RemoteAddr = "192.0.2.57:1111"
+	rec := httptest.NewRecorder()
+	shield.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if strings.Contains(body, "8.2.34") {
+		t.Fatalf("expected PHP version to be scrubbed, got %q", body)
+	}
+	if got := strings.Count(body, "PHP x.x.x"); got != 3 {
+		t.Fatalf("expected 3 scrubbed version markers, got %d in %q", got, body)
+	}
+	if cl := rec.Header().Get("Content-Length"); cl != "" && cl != strconv.Itoa(len(body)) {
+		t.Fatalf("Content-Length = %q, want %d", cl, len(body))
+	}
+}
+
+func TestShieldProxy_DoesNotScrubBinaryResponseBody(t *testing.T) {
+	shield, _, _ := newTestShield(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("binary PHP 8.2.34 payload"))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://sentinel.local/index.php", nil)
+	req.RemoteAddr = "192.0.2.58:1111"
+	rec := httptest.NewRecorder()
+	shield.ServeHTTP(rec, req)
+
+	if !strings.Contains(rec.Body.String(), "PHP 8.2.34") {
+		t.Fatalf("binary response body must not be modified, got %q", rec.Body.String())
+	}
 }
 
 func BenchmarkInspector_LegitimateMultipart(b *testing.B) {
