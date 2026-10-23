@@ -1,0 +1,21 @@
+# Local build output directory (keep docs/downloads/ tracked for GitHub Pages)
+/bin/
+
+# Go test & coverage artifacts
+*.test
+*.out
+coverage.txt
+*.prof
+
+# Runtime logs, backups, and quarantine artifacts
+*.log
+*.bak.*
+php2shell-sentinel-quarantine/
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/

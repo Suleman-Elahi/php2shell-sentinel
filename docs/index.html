@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PHP2Shell Sentinel — CVE-2026-109618 &amp; CVE-2026-109619 Defense Agent</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="header-top">
+        <div class="brand">
+          <h1>php2shell-sentinel</h1>
+          <span class="badge">v1.0.0</span>
+          <span class="badge badge-cve">CVE-2026-109618</span>
+          <span class="badge badge-cve">CVE-2026-109619</span>
+        </div>
+        <nav class="top-nav">
+          <a href="#install">Quick Install</a>
+          <a href="#downloads">Downloads</a>
+          <a href="#zero-touch">Zero-Touch Mode</a>
+          <a href="#cli">CLI Usage</a>
+          <a href="#rules">Detection Rules</a>
+        </nav>
+      </div>
+      <p class="subtitle">
+        Lightweight, zero-dependency Go background service &amp; HTTP shield for Linux and Windows.
+        Prevents, detects, logs, and mitigates <strong>php2shell</strong> pre-auth RCE exploits across PHP 5.4–8.5 without requiring application code changes.
+      </p>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Quick Install Section -->
+    <section id="install">
+      <h2>Quick Install (Linux &amp; Windows)</h2>
+      <div class="card">
+        <div class="url-bar">
+          <label for="base-url-input">GitHub Pages / Mirror URL:</label>
+          <input type="text" id="base-url-input" spellcheck="false" aria-label="Base URL for install commands">
+        </div>
+
+        <div class="tabs">
+          <button type="button" class="tab-btn active" data-tab="tab-linux">Linux (curl / systemd)</button>
+          <button type="button" class="tab-btn" data-tab="tab-windows">Windows (PowerShell irm / Windows Service)</button>
+        </div>
+
+        <!-- Linux Tab -->
+        <div id="tab-linux" class="tab-panel active">
+          <h3>Option A: One-Line Installer (Downloads binary, audits PHP, installs &amp; starts systemd service)</h3>
+          <div class="code-block">
+            <button type="button" class="copy-btn" data-copy-target="cmd-linux-oneliner">Copy</button>
+            <pre id="cmd-linux-oneliner">curl -fsSL "https://suleman-elahi.github.io/php2shell-sentinel/install.sh" | sudo sh</pre>
+          </div>
+
+          <h3>Option B: Step-by-Step Binary Download via curl</h3>
+          <div class="code-block">
+            <button type="button" class="copy-btn" data-copy-target="cmd-linux-curl-bin">Copy</button>
+            <pre id="cmd-linux-curl-bin"></pre>
+          </div>
+        </div>
+
+        <!-- Windows Tab -->
+        <div id="tab-windows" class="tab-panel">
+          <h3>Option A: One-Line PowerShell Installer (Run in Elevated Administrator PowerShell)</h3>
+          <div class="code-block">
+            <button type="button" class="copy-btn" data-copy-target="cmd-win-oneliner">Copy</button>
+            <pre id="cmd-win-oneliner">irm "https://suleman-elahi.github.io/php2shell-sentinel/install.ps1" | iex</pre>
+          </div>
+
+          <h3>Option B: Step-by-Step Download &amp; Windows Service Setup</h3>
+          <div class="code-block">
+            <button type="button" class="copy-btn" data-copy-target="cmd-win-manual">Copy</button>
+            <pre id="cmd-win-manual"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Direct Downloads Section -->
+    <section id="downloads">
+      <h2>Direct Downloads</h2>
+      <div class="download-grid">
+        <div class="download-item">
+          <div>
+            <h4>sentinel-linux-amd64</h4>
+            <p>Static Linux x86_64 binary (<code>CGO_ENABLED=0</code>). Includes WAF proxy, <code>/proc</code> watchdog, session guard, and <code>systemd</code> manager.</p>
+          </div>
+          <a class="btn-download" href="downloads/sentinel-linux-amd64" download>Download Linux Binary</a>
+        </div>
+
+        <div class="download-item">
+          <div>
+            <h4>sentinel-windows-amd64.exe</h4>
+            <p>Static Windows x86_64 executable. Native Windows Service Control Manager (SCM) &amp; Win32 Toolhelp32 process watchdog.</p>
+          </div>
+          <a class="btn-download" href="downloads/sentinel-windows-amd64.exe" download>Download Windows .exe</a>
+        </div>
+
+        <div class="download-item">
+          <div>
+            <h4>Configuration &amp; Checksums</h4>
+            <p>Default JSON configuration template, installer scripts, and SHA-256 checksums for binary verification.</p>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <a class="btn-download" href="downloads/sentinel.example.json" download>sentinel.example.json</a>
+            <a class="btn-download" href="downloads/SHA256SUMS.txt" download>SHA256SUMS.txt</a>
+            <a class="btn-download" href="install.sh" download>install.sh</a>
+            <a class="btn-download" href="install.ps1" download>install.ps1</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Zero-Touch Out-of-Band Mode -->
+    <section id="zero-touch">
+      <h2>What Works with "Zero Application Modifications"</h2>
+      <p style="color:var(--muted); margin-top:0;">
+        Sentinel can run as an in-line HTTP reverse proxy shield <strong>or</strong> completely out-of-band (<code>-no-proxy -firewall</code>) without altering existing Apache, Nginx, IIS, or PHP ports.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>How Sentinel Does It Passively</th>
+            <th>App Changes?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Blocking Spawned Shells</strong></td>
+            <td>Scans OS process tree (<code>/proc</code> on Linux, Win32 <code>CreateToolhelp32Snapshot</code> on Windows) every 150ms and kills shells (<code>sh</code>, <code>bash</code>, <code>cmd.exe</code>, <code>powershell.exe</code>, <code>nc</code>, <code>curl</code>) spawned by PHP workers.</td>
+            <td><strong>No</strong></td>
+          </tr>
+          <tr>
+            <td><strong>Deleting Poisoned Sessions</strong></td>
+            <td>Watches <code>/var/lib/php/sessions</code>, <code>/tmp</code>, <code>C:\Windows\Temp</code>, and <code>C:\xampp\tmp</code> for <code>sess_*</code> files containing <code>&lt;?php</code>, <code>upload_progress_</code>, <code>|O:</code>, or <code>&gt; 4 MiB</code> inflation and quarantines/deletes them immediately.</td>
+            <td><strong>No</strong></td>
+          </tr>
+          <tr>
+            <td><strong>Detecting Crashes &amp; OOM Bailouts</strong></td>
+            <td>Reads directly from <code>journalctl</code> (Linux), Windows Application Event Log (<code>wevtutil</code>), and web error logs for <code>in Unknown on line 0</code>, <code>Session object destruction failed</code>, and <code>SIGSEGV</code>.</td>
+            <td><strong>No</strong></td>
+          </tr>
+          <tr>
+            <td><strong>Quarantining Attacking IPs</strong></td>
+            <td>Automatically inserts DROP/Block rules into the OS firewall (<code>iptables</code> on Linux, <code>netsh advfirewall</code> on Windows).</td>
+            <td><strong>No</strong></td>
+          </tr>
+          <tr>
+            <td><strong>Deep Multipart UAF Prevention</strong></td>
+            <td>When run in-line, aborts <code>PHP_SESSION_UPLOAD_PROGRESS</code>, blocks two-phase stalled uploads (<code>&lt; 900ms</code> chunk timeout), caps per-IP concurrent multipart connections (defeating 149-worker pinning), and scrubs <code>Set-Cookie: PHPSESSID</code> heap leaks.</td>
+            <td>Point HTTP backend</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- CLI Reference for Linux & Windows -->
+    <section id="cli">
+      <h2>CLI &amp; Service Operations Reference</h2>
+      <div class="card">
+        <h3>Linux Commands</h3>
+        <div class="code-block">
+          <button type="button" class="copy-btn" data-copy-target="cmd-ref-linux">Copy</button>
+          <pre id="cmd-ref-linux"># Audit local PHP version &amp; php.ini files (read-only)
+sentinel check
+
+# Apply virtual patches (session.upload_progress.enabled = Off) with .bak backup
+sudo sentinel harden
+
+# Run in Zero-Touch Out-of-Band Mode (watches /proc, sessions, journald &amp; iptables)
+sudo sentinel run -no-proxy -firewall -log-file /var/log/php2shell-sentinel.log
+
+# Check systemd service status, live telemetry &amp; journal logs
+sudo systemctl status php2shell-sentinel
+sudo journalctl -u php2shell-sentinel -f
+sentinel status</pre>
+        </div>
+
+        <h3>Windows Commands (Elevated PowerShell / Administrator CMD)</h3>
+        <div class="code-block">
+          <button type="button" class="copy-btn" data-copy-target="cmd-ref-windows">Copy</button>
+          <pre id="cmd-ref-windows"># Audit local Windows PHP installation (XAMPP / WAMP / Laragon / IIS)
+sentinel.exe check -path C:\xampp\php
+
+# Apply php.ini virtual patches with automatic .bak backup
+sentinel.exe harden -path C:\xampp\php\php.ini
+
+# Run in Zero-Touch Out-of-Band Mode on Windows (Win32 processes, sess_*, Event Log, Windows Firewall)
+sentinel.exe run -no-proxy -firewall -log-file C:\ProgramData\php2shell-sentinel\sentinel.log
+
+# Query Windows Service status, live telemetry, and Windows Firewall rules
+Get-Service PHP2ShellSentinel
+sc.exe query PHP2ShellSentinel
+sentinel.exe status
+netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Detection Rule Reference -->
+    <section id="rules">
+      <h2>Built-In Detection &amp; Mitigation Rules</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Rule ID</th>
+            <th>CVE / Chain</th>
+            <th>Target Vector &amp; Mitigation</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>P2S-2026100</code></td>
+            <td>CVE-2026-109618 / 109619</td>
+            <td>Blocks or strips <code>PHP_SESSION_UPLOAD_PROGRESS</code> in <code>POST</code>/<code>PUT</code>/<code>PATCH</code> multipart bodies (including <code>multipart/form-data,boundary=x</code>).</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026100-STALL</code></td>
+            <td>CVE-2026-109618 / 109619</td>
+            <td>Aborts stalled multipart uploads (<code>&gt; 900ms</code> inter-chunk pause) before <code>php_session_track_init()</code> frees <code>arData</code>.</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026101</code></td>
+            <td>PR #22113</td>
+            <td>Blocks <code>name="PHPSESSID"</code> in multipart request bodies (prevents <code>session.use_only_cookies</code> bypass).</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026102</code></td>
+            <td>Chain A (Session LFI)</td>
+            <td>Blocks PHP tags (<code>&lt;?php</code>, <code>&lt;?=</code>) inside multipart upload filenames.</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026103</code></td>
+            <td>Chain C (Handler Mismatch)</td>
+            <td>Blocks <code>|O:...</code> serialized object injection inside upload filenames.</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026104</code></td>
+            <td>Chain E &amp; Heap Spray</td>
+            <td>Blocks upload filenames <code>&gt; 200</code> bytes (stops 231B <code>ZendMM</code> 256B bin spray and 10KB+ session inflation).</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026105</code></td>
+            <td>Chain D (SAPI OOM)</td>
+            <td>Blocks <code>Transfer-Encoding: chunked</code> on multipart uploads (<code>post_max_size</code> bypass) and excessive part counts.</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026106</code></td>
+            <td>Chain A (LFI / pearcmd)</td>
+            <td>Blocks LFI paths referencing <code>sess_*</code> or <code>pearcmd.php</code> (<code>+config-create+</code>).</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026107</code> / <code>108</code></td>
+            <td>Scanner / Heap Shape</td>
+            <td>Blocks <code>a[][a][a]...</code> nested bracket probes and empty-boundary discrepancy probes; auto-bans after 3 probes/60s.</td>
+          </tr>
+          <tr>
+            <td><code>P2S-2026109</code> / <code>112</code></td>
+            <td>Pure HTTP ASLR Bypass</td>
+            <td>Blocks forged binary <code>Cookie: PHPSESSID</code> pointers and scrubs 800KB <code>Set-Cookie: PHPSESSID</code> heap leaks.</td>
+          </tr>
+          <tr>
+            <td><code>P2S-20244577</code></td>
+            <td>CVE-2024-4577</td>
+            <td>Blocks PHP-CGI soft-hyphen (<code>%ADd</code>) and <code>-d allow_url_include</code> / <code>auto_prepend_file</code> argument injection.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      PHP2Shell Sentinel — Cross-Platform Runtime &amp; Network Defense for Legacy and Modern PHP
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
