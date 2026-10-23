@@ -2,6 +2,7 @@ package waf
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -137,6 +138,15 @@ func (sp *ShieldProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			defer sp.tracker.ReleaseMultipartSlot(clientIP)
 		}
+	}
+
+	if isMP && r.Body != nil {
+		r.Body = newMultipartDeadlineBody(
+			r.Body,
+			requestReadDeadlineSetter(r, w),
+			sp.cfg.MultipartChunkTimeout,
+			time.Now().Add(sp.cfg.RequestReadTimeout),
+		)
 	}
 
 	// 3. Deep Request Inspection (Headers, URL, Cookies, Pooled Multipart Window + Stream Guard)
@@ -287,6 +297,29 @@ func (sp *ShieldProxy) handleProxyError(w http.ResponseWriter, r *http.Request, 
 
 	// Check if our guardedStreamReader aborted an in-flight attack (stalled UAF upload or mid-stream payload)
 	switch {
+	case IsMultipartRequest(r) && isTimeoutError(err):
+		sp.tracker.AddRisk(clientIP, 100, "multipart upload exceeded read deadline", now)
+		sp.logger.Metrics().BlockedRequests.Add(1)
+		sp.logger.Log(audit.Event{
+			Timestamp: now,
+			Severity:  audit.SeverityCritical,
+			Component: "waf-stream",
+			Action:    "stalled_upload_aborted",
+			RuleID:    "P2S-2026100-STALL",
+			CVE:       "CVE-2026-109618/CVE-2026-109619",
+			Chain:     "UAF-Stall-Trigger",
+			ClientIP:  clientIP,
+			Method:    r.Method,
+			Path:      r.URL.Path,
+			Message:   err.Error(),
+			Mitigated: true,
+			RiskScore: 100,
+		})
+		w.Header().Set("X-Blocked-By", "php2shell-sentinel")
+		w.Header().Set("X-Sentinel-Rule", "P2S-2026100-STALL")
+		http.Error(w, "408 Request Timeout - Stalled Multipart Upload Aborted", http.StatusRequestTimeout)
+		return
+
 	case isErrorMatch(err, ErrStalledUpload):
 		sp.tracker.AddRisk(clientIP, 100, "stalled multipart UAF timing attack", now)
 		sp.logger.Metrics().BlockedRequests.Add(1)
@@ -373,4 +406,101 @@ func isErrorMatch(err, target error) bool {
 		return false
 	}
 	return errors.Is(err, target) || bytes.Contains([]byte(err.Error()), []byte(target.Error()))
+}
+
+func isTimeoutError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// multipartDeadlineBody enforces a deadline for every read from a multipart body.
+// The overall request deadline remains in place between reads; the shorter
+// MultipartChunkTimeout applies while waiting for the next network chunk.
+type multipartDeadlineBody struct {
+	body            io.ReadCloser
+	setter          readDeadlineSetter
+	chunkTimeout    time.Duration
+	requestDeadline time.Time
+}
+
+type readDeadlineSetter interface {
+	SetReadDeadline(time.Time) error
+}
+
+type readDeadlineConnContextKey struct{}
+
+// WithReadDeadlineConn makes a server connection available to the WAF request
+// wrapper. The wrapper uses it to enforce individual multipart read deadlines.
+func WithReadDeadlineConn(ctx context.Context, conn net.Conn) context.Context {
+	return context.WithValue(ctx, readDeadlineConnContextKey{}, conn)
+}
+
+func newMultipartDeadlineBody(
+	body io.ReadCloser,
+	setter readDeadlineSetter,
+	chunkTimeout time.Duration,
+	requestDeadline time.Time,
+) *multipartDeadlineBody {
+	return &multipartDeadlineBody{
+		body:            body,
+		setter:          setter,
+		chunkTimeout:    chunkTimeout,
+		requestDeadline: requestDeadline,
+	}
+}
+
+func requestReadDeadlineSetter(r *http.Request, w http.ResponseWriter) readDeadlineSetter {
+	if r != nil {
+		if setter, ok := r.Context().Value(readDeadlineConnContextKey{}).(readDeadlineSetter); ok {
+			return setter
+		}
+	}
+	return http.NewResponseController(w)
+}
+
+func (b *multipartDeadlineBody) Read(p []byte) (int, error) {
+	deadline := b.requestDeadline
+	if b.chunkTimeout > 0 {
+		chunkDeadline := time.Now().Add(b.chunkTimeout)
+		if deadline.IsZero() || chunkDeadline.Before(deadline) {
+			deadline = chunkDeadline
+		}
+	}
+	b.setDeadline(deadline)
+
+	n, err := b.body.Read(p)
+	if isTimeoutError(err) {
+		b.closeConnection()
+	} else if errors.Is(err, io.EOF) {
+		b.clearDeadline()
+	} else {
+		b.setDeadline(b.requestDeadline)
+	}
+	return n, err
+}
+
+func (b *multipartDeadlineBody) Close() error {
+	b.clearDeadline()
+	return b.body.Close()
+}
+
+func (b *multipartDeadlineBody) setDeadline(deadline time.Time) {
+	if b.setter == nil {
+		return
+	}
+	if err := b.setter.SetReadDeadline(deadline); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		// The server-wide request timeout remains active if the response writer
+		// cannot apply a connection-specific deadline.
+		return
+	}
+}
+
+func (b *multipartDeadlineBody) clearDeadline() {
+	b.setDeadline(time.Time{})
+}
+
+func (b *multipartDeadlineBody) closeConnection() {
+	if conn, ok := b.setter.(interface{ Close() error }); ok {
+		_ = conn.Close()
+	}
 }

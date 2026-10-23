@@ -1,0 +1,13 @@
+FROM golang:1.24 AS build
+
+WORKDIR /src
+COPY go.mod ./
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/sentinel ./cmd/sentinel
+
+FROM scratch
+
+COPY --from=build /out/sentinel /sentinel
+USER 65532:65532
+ENTRYPOINT ["/sentinel"]

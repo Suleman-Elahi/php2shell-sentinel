@@ -2,12 +2,14 @@ package agent
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,17 +26,17 @@ import (
 
 // StatusReport is the JSON payload returned by the local `/status` control endpoint.
 type StatusReport struct {
-	Agent         string             `json:"agent"`
-	OS            string             `json:"os"`
-	Arch          string             `json:"arch"`
-	Mode          config.Mode        `json:"mode"`
-	UptimeSeconds int64              `json:"uptime_seconds"`
-	Goroutines    int                `json:"goroutines"`
-	HeapAllocKB   uint64             `json:"heap_alloc_kb"`
-	SysMemKB      uint64             `json:"sys_mem_kb"`
-	Metrics       audit.Snapshot     `json:"metrics"`
+	Agent         string              `json:"agent"`
+	OS            string              `json:"os"`
+	Arch          string              `json:"arch"`
+	Mode          config.Mode         `json:"mode"`
+	UptimeSeconds int64               `json:"uptime_seconds"`
+	Goroutines    int                 `json:"goroutines"`
+	HeapAllocKB   uint64              `json:"heap_alloc_kb"`
+	SysMemKB      uint64              `json:"sys_mem_kb"`
+	Metrics       audit.Snapshot      `json:"metrics"`
 	ActiveBans    []intel.ClientState `json:"active_bans"`
-	RecentEvents  []audit.Event      `json:"recent_events"`
+	RecentEvents  []audit.Event       `json:"recent_events"`
 }
 
 // Agent coordinates all defense layers of the PHP2Shell Sentinel.
@@ -92,12 +94,12 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.startedAt = time.Now().UTC()
 
 	a.logger.Info("agent", "startup", "PHP2Shell Sentinel starting", map[string]string{
-		"os":           runtime.GOOS,
-		"arch":         runtime.GOARCH,
-		"mode":         string(a.cfg.Mode),
-		"listen_addr":  a.cfg.ListenAddr,
-		"backend_url":  a.cfg.BackendURL,
-		"status_addr":  a.cfg.StatusAddr,
+		"os":          runtime.GOOS,
+		"arch":        runtime.GOARCH,
+		"mode":        string(a.cfg.Mode),
+		"listen_addr": a.cfg.ListenAddr,
+		"backend_url": a.cfg.BackendURL,
+		"status_addr": a.cfg.StatusAddr,
 	})
 
 	if a.cfg.AutoHardenOnStart {
@@ -192,8 +194,12 @@ func (a *Agent) Run(ctx context.Context) error {
 			Handler:           a.proxy,
 			MaxHeaderBytes:    a.cfg.MaxHeaderBytes,
 			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       a.cfg.RequestReadTimeout,
 			WriteTimeout:      60 * time.Second,
 			IdleTimeout:       60 * time.Second,
+			ConnContext: func(ctx context.Context, conn net.Conn) context.Context {
+				return waf.WithReadDeadlineConn(ctx, conn)
+			},
 		}
 		wg.Add(1)
 		go func() {
@@ -274,14 +280,20 @@ func (a *Agent) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte(`{"status":"ok"}` + "\n"))
 }
 
-func (a *Agent) handleStatus(w http.ResponseWriter, _ *http.Request) {
+func (a *Agent) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if !a.authorizeStatus(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(a.BuildStatusReport())
 }
 
-func (a *Agent) handleEvents(w http.ResponseWriter, _ *http.Request) {
+func (a *Agent) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if !a.authorizeStatus(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -289,6 +301,13 @@ func (a *Agent) handleEvents(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *Agent) handleBans(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete && a.cfg.StatusAuthToken == "" {
+		http.Error(w, "status API write access is disabled without status_auth_token", http.StatusForbidden)
+		return
+	}
+	if !a.authorizeStatus(w, r) {
+		return
+	}
 	if r.Method == http.MethodDelete {
 		ip := r.URL.Query().Get("ip")
 		if ip != "" && a.tracker.Unban(ip) {
@@ -299,4 +318,19 @@ func (a *Agent) handleBans(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(a.tracker.ActiveBans(time.Now().UTC()))
+}
+
+func (a *Agent) authorizeStatus(w http.ResponseWriter, r *http.Request) bool {
+	if a.cfg.StatusAuthToken == "" {
+		return true
+	}
+
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || len(token) != len(a.cfg.StatusAuthToken) ||
+		subtle.ConstantTimeCompare([]byte(token), []byte(a.cfg.StatusAuthToken)) != 1 {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="php2shell-sentinel-status"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
 }

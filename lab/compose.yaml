@@ -1,0 +1,51 @@
+name: php2shell-sentinel-safe-lab
+
+services:
+  target:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile.target
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.50
+    networks: [lab]
+
+  sentinel:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile.sentinel
+    command: ["run", "-config", "/config/sentinel.json"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.50
+    volumes:
+      - type: bind
+        source: ./sentinel.json
+        target: /config/sentinel.json
+        read_only: true
+    depends_on: [target]
+    networks: [lab]
+
+  replay:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile.replay
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.50
+    depends_on: [sentinel]
+    networks: [lab]
+    profiles: [replay]
+
+networks:
+  lab:
+    internal: true

@@ -291,17 +291,30 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	addr := fs.String("addr", "127.0.0.1:9095", "Status endpoint address of running Sentinel")
+	token := fs.String("token", os.Getenv("SENTINEL_STATUS_AUTH_TOKEN"), "Status API bearer token (defaults to SENTINEL_STATUS_AUTH_TOKEN)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://" + *addr + "/status")
+	req, err := http.NewRequest(http.MethodGet, "http://"+*addr+"/status", nil)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "invalid status API address %s: %v\n", *addr, err)
+		return 2
+	}
+	if *token != "" {
+		req.Header.Set("Authorization", "Bearer "+*token)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "failed to reach Sentinel status API at %s: %v\n", *addr, err)
 		return 1
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		_, _ = fmt.Fprintf(stderr, "status API at %s returned %s\n", *addr, resp.Status)
+		return 1
+	}
 	_, _ = io.Copy(stdout, resp.Body)
 	return 0
 }

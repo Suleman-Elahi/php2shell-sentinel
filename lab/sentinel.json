@@ -1,0 +1,15 @@
+{
+  "mode": "block",
+  "log_format": "json",
+  "status_addr": "127.0.0.1:9095",
+  "proxy_enabled": true,
+  "listen_addr": "0.0.0.0:8080",
+  "backend_url": "http://target:8081",
+  "request_read_timeout": 30000000000,
+  "session_guard_enabled": false,
+  "proc_watch_enabled": false,
+  "log_watch_enabled": false,
+  "journal_watch_enabled": false,
+  "firewall_ban_enabled": false,
+  "auto_harden_on_start": false
+}

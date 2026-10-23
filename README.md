@@ -62,6 +62,26 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o b
 
 ---
 
+## Deployment Security Requirements
+
+- Route public PHP traffic through the in-line Sentinel proxy. Do not expose the
+  PHP backend directly.
+- The status API binds to a loopback IP by default. A non-loopback
+  `status_addr` requires both `"status_allow_remote": true` and a non-empty
+  `"status_auth_token"`. Supply the token through `SENTINEL_STATUS_AUTH_TOKEN`
+  rather than committing it to configuration.
+- `DELETE /bans` is disabled unless a status token is configured. When a token
+  is configured, use `Authorization: Bearer <token>` for status API endpoints.
+- `multipart_chunk_timeout` defaults to 900ms and aborts multipart uploads
+  that stall between body reads. `request_read_timeout` defaults to 30 seconds
+  and limits total request receive time. Set both for the maximum acceptable
+  upload duration and inter-chunk pause in the deployment.
+
+These controls complement, but do not replace, patching PHP and disabling
+`session.upload_progress.enabled`.
+
+---
+
 ## CLI Usage & Background Service Deployment (Linux)
 
 ```bash
@@ -82,6 +102,8 @@ sudo ./bin/sentinel-linux-amd64 run -no-proxy -firewall -log-file /var/log/php2s
 sudo systemctl status php2shell-sentinel
 sudo journalctl -u php2shell-sentinel -f
 ./bin/sentinel-linux-amd64 status
+# If status_auth_token is configured:
+SENTINEL_STATUS_AUTH_TOKEN='your-token' ./bin/sentinel-linux-amd64 status
 ```
 
 ---
@@ -119,20 +141,3 @@ netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel
 .\bin\sentinel-windows-amd64.exe stop
 .\bin\sentinel-windows-amd64.exe uninstall
 ```
-
----
-
-## GitHub Pages Static Site & One-Line Installers (`docs/`)
-
-The `docs/` folder contains a self-contained static HTML/CSS/JS site ready for **GitHub Pages** (`Settings -> Pages -> Deploy from branch -> /docs`), including prebuilt binaries (`docs/downloads/`) and one-line installer scripts:
-
-### Linux One-Line Install (`curl`)
-```bash
-curl -fsSL "https://suleman-elahi.github.io/php2shell-sentinel/install.sh" | sudo sh
-```
-
-### Windows One-Line Install (Elevated PowerShell `irm`)
-```powershell
-irm "https://suleman-elahi.github.io/php2shell-sentinel/install.ps1" | iex
-```
-

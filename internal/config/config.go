@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,6 +28,9 @@ type Config struct {
 	LogFormat  string `json:"log_format"` // "json" or "text"
 	LogLevel   string `json:"log_level"`  // "debug", "info", "warn", "error"
 	StatusAddr string `json:"status_addr"`
+	// StatusAllowRemote permits a non-loopback status listener. It requires StatusAuthToken.
+	StatusAllowRemote bool   `json:"status_allow_remote"`
+	StatusAuthToken   string `json:"status_auth_token"`
 
 	// Reverse Proxy / HTTP Shield Settings
 	ProxyEnabled            bool          `json:"proxy_enabled"`
@@ -39,6 +43,7 @@ type Config struct {
 	MaxArrayDepth           int           `json:"max_array_depth"`
 	MaxFilenameLen          int           `json:"max_filename_len"`
 	MultipartChunkTimeout   time.Duration `json:"multipart_chunk_timeout"`
+	RequestReadTimeout      time.Duration `json:"request_read_timeout"`
 	MaxConcurrentMultipart  int           `json:"max_concurrent_multipart_per_ip"`
 	UploadProgressFieldName string        `json:"upload_progress_field_name"`
 	BlockChunkedMultipart   bool          `json:"block_chunked_multipart"`
@@ -91,6 +96,8 @@ func Default() *Config {
 		LogFormat:               "json",
 		LogLevel:                "info",
 		StatusAddr:              "127.0.0.1:9095",
+		StatusAllowRemote:       false,
+		StatusAuthToken:         "",
 		ProxyEnabled:            true,
 		ListenAddr:              "127.0.0.1:8080",
 		BackendURL:              "http://127.0.0.1:8081",
@@ -101,6 +108,7 @@ func Default() *Config {
 		MaxArrayDepth:           8,               // Blocks 62-64 nested key scanner/OOM probes
 		MaxFilenameLen:          200,             // Blocks 231B zend_string bin spray & >10KB session inflation
 		MultipartChunkTimeout:   900 * time.Millisecond,
+		RequestReadTimeout:      30 * time.Second,
 		MaxConcurrentMultipart:  4, // Blocks 149-connection worker-pinning attacks
 		UploadProgressFieldName: "PHP_SESSION_UPLOAD_PROGRESS",
 		BlockChunkedMultipart:   true,
@@ -305,6 +313,9 @@ func (c *Config) ApplyEnv() {
 	if v := os.Getenv("SENTINEL_STATUS_ADDR"); v != "" {
 		c.StatusAddr = v
 	}
+	if v := os.Getenv("SENTINEL_STATUS_AUTH_TOKEN"); v != "" {
+		c.StatusAuthToken = v
+	}
 	if v := os.Getenv("SENTINEL_LOG_FILE"); v != "" {
 		c.LogFile = v
 	}
@@ -341,6 +352,22 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxBodyBytes <= 0 {
 		return fmt.Errorf("max_body_bytes must be > 0")
+	}
+	if c.RequestReadTimeout <= 0 {
+		c.RequestReadTimeout = 30 * time.Second
+	}
+	if c.StatusAddr != "" {
+		host, _, err := net.SplitHostPort(c.StatusAddr)
+		if err != nil {
+			return fmt.Errorf("invalid status_addr %q: %w", c.StatusAddr, err)
+		}
+		ip := net.ParseIP(host)
+		if !c.StatusAllowRemote && (ip == nil || !ip.IsLoopback()) {
+			return fmt.Errorf("status_addr %q must bind to a loopback IP unless status_allow_remote is enabled", c.StatusAddr)
+		}
+		if c.StatusAllowRemote && c.StatusAuthToken == "" {
+			return fmt.Errorf("status_auth_token is required when status_allow_remote is enabled")
+		}
 	}
 	if c.InspectWindowBytes <= 0 {
 		c.InspectWindowBytes = 256 * 1024
