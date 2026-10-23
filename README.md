@@ -4,6 +4,24 @@
 
 It supports both **In-Line Reverse Proxy WAF Mode** and **Zero-Touch Out-of-Band HIDS/HIPS Mode** (protecting PHP servers from the outside without modifying PHP code or web server ports).
 
+> **Deployment default:** the agent starts in **out-of-band mode**. The in-line
+> proxy is opt-in because it must be pointed at the real PHP backend. Enable it
+> only after setting `proxy_enabled: true` **and** a valid `backend_url`, or by
+> passing `-proxy -backend http://127.0.0.1:<port>`. See
+> [Deployment modes](#deployment-modes) below.
+
+### Deployment Modes
+
+| Mode | How to run | What it protects | Traffic change |
+| :--- | :--- | :--- | :--- |
+| **Out-of-band (default)** | `sentinel install` / `sentinel run` | Session-file poisoning, spawned shells, runaway workers, crash/OOM log signals, `php.ini` hardening, optional firewall bans | None |
+| **In-line WAF** | `sentinel run -proxy -listen 127.0.0.1:8080 -backend http://127.0.0.1:8081` | Everything above **plus** pre-parser blocking of php2shell multipart, request, cookie, response, and scanner vectors | Route public traffic to `listen_addr`; keep the PHP backend private |
+
+The one-line installer creates a configuration with the proxy **disabled**, so a
+fresh install never breaks a host whose PHP backend is not on the guessed
+`127.0.0.1:8081` address. Enabling the proxy without a reachable backend is
+reported at startup as `backend_unreachable` and would return `502` to clients.
+
 ---
 
 ## What Works with "Zero Application Modifications" (`-no-proxy -firewall`)
@@ -12,7 +30,7 @@ It supports both **In-Line Reverse Proxy WAF Mode** and **Zero-Touch Out-of-Band
 | :--- | :--- | :--- |
 | **Killing Spawned Shells (`sh`, `cmd.exe`, `powershell.exe`)** | Scans the OS process tree (`/proc` on Linux, Win32 `CreateToolhelp32Snapshot` on Windows) and terminates shell/recon children spawned by PHP workers (`php-fpm`, `php-cgi`, `apache2`, `httpd`, `w3wp.exe`). | **No** |
 | **Preempting Corrupted / Runaway Workers** | Monitors per-worker RSS memory and terminates runaway PHP workers via OS signals (`SIGKILL` / `TerminateProcess`). | **No** |
-| **Neutralizing Poisoned Session Files (`sess_*`)** | Continuously watches PHP session directories (`/var/lib/php/sessions`, `/tmp`, `C:\Windows\Temp`, `C:\xampp\tmp`) and quarantines/deletes `sess_*` files containing `<?php`, `upload_progress_`, `\|O:`, or `> 4 MiB` inflation. | **No** |
+| **Neutralizing Poisoned Session Files (`sess_*`)** | Continuously watches PHP session directories (`/var/lib/php/sessions`, `/tmp`, `C:\Windows\Temp`, `C:\xampp\tmp`) and quarantines/deletes `sess_*` files containing `<?php`, `upload_progress_` state, `\|O:` / `\|C:` serialized object gadgets, or `> 4 MiB` inflation. Legitimate `upload_progress_...\|a:` arrays are cleaned as upload-progress state, not mislabelled as handler mismatch. | **No** |
 | **Detecting Crashes, `SIGSEGV`, & OOM Bailouts** | Reads directly from `systemd` journal (`journalctl`), Windows Application Event Log (`wevtutil`), and Apache/Nginx/PHP error logs for `in Unknown on line 0` and `Session object destruction failed`. | **No** |
 | **Quarantining Attacking IPs at the OS Firewall** | Automatically inserts DROP/Block rules into the host firewall (`iptables` on Linux, Windows Filtering Platform via `netsh advfirewall` on Windows). | **No** |
 
@@ -50,6 +68,31 @@ It supports both **In-Line Reverse Proxy WAF Mode** and **Zero-Touch Out-of-Band
 
 ---
 
+## Verification Results (2026-10-23)
+
+The agent was tested against public php2shell PoCs and a deliberately vulnerable
+**PHP 8.2.34-FPM + nginx** lab, first without Sentinel to confirm exploitability,
+then with the same requests routed through Sentinel.
+
+| Check | Result |
+| :--- | :--- |
+| Go unit tests (`go test ./...`) | **PASS** — all packages |
+| Repository safe lab (harmless replay) | **PASS** — `403`, `P2S-2026100` |
+| Public Chain A RCE, no Sentinel | **RCE CONFIRMED** — `uid=33(www-data)` |
+| Public Chain A RCE through Sentinel | **BLOCKED** — `403 P2S-2026100`, no command execution |
+| `php2shell-scanner`, no Sentinel | **VULNERABLE** |
+| `php2shell-scanner` through Sentinel | **BLOCKED** — `403 P2S-2026107-SCAN` (scanner reports `INCONCLUSIVE` on the rejected probe) |
+| Rule-by-rule WAF matrix | **19/19 PASS** |
+| Process watchdog | **PASS** — killed long-lived shell children, `P2S-PROC-EXEC` |
+| Session-file guard | **PASS** — removed/quarantined poisoned `sess_*` files |
+| `php.ini` hardener | **PASS** — `upload_progress=Off`, `use_only_cookies=On`, backup created |
+| Exact binary as in-line WAF | **PASS** — clean `200`; Chain A `403` |
+
+The full evidence and reproduction harness are kept outside the repository in
+the test lab (`REPORT.md`, `rule_matrix.py`, and captured logs).
+
+---
+
 ## Building Statically for Linux and Windows
 
 ```bash
@@ -64,8 +107,15 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o b
 
 ## Deployment Security Requirements
 
-- Route public PHP traffic through the in-line Sentinel proxy. Do not expose the
-  PHP backend directly.
+- **Choose the mode deliberately.** The default configuration runs out-of-band
+  host guards and does not listen for HTTP traffic. For pre-parser protection,
+  set `"proxy_enabled": true`, point `"backend_url"` at the real PHP backend,
+  route public traffic to `"listen_addr"`, and keep the PHP backend private.
+  Enabling the proxy against a placeholder backend produces `502` responses.
+- The proxy validates `listen_addr` and `backend_url` at startup. If the backend
+  is unreachable, Sentinel logs a `backend_unreachable` warning in the journal
+  and continues running; fix `backend_url` or disable the proxy with
+  `-no-proxy` if only out-of-band mode is intended.
 - The status API binds to a loopback IP by default. A non-loopback
   `status_addr` requires both `"status_allow_remote": true` and a non-empty
   `"status_auth_token"`. Supply the token through `SENTINEL_STATUS_AUTH_TOKEN`
@@ -92,11 +142,22 @@ These controls complement, but do not replace, patching PHP and disabling
 sudo ./bin/sentinel-linux-amd64 harden
 
 # 3. Install & start as a persistent systemd background service
+#    (default: out-of-band guards; proxy_enabled is false)
 sudo ./bin/sentinel-linux-amd64 install -config /etc/php2shell-sentinel/sentinel.json
 sudo ./bin/sentinel-linux-amd64 start
 
-# 4. Run in Zero-Touch Out-of-Band Mode (no HTTP port changes; watches /proc, sessions, journald & iptables)
+# 3b. Enable the in-line WAF in /etc/php2shell-sentinel/sentinel.json:
+#       "proxy_enabled": true
+#       "listen_addr":  "127.0.0.1:8080"
+#       "backend_url":  "http://127.0.0.1:8081"   # <- real PHP backend
+#     then: sudo systemctl restart php2shell-sentinel
+#     and route public traffic to 127.0.0.1:8080 instead of the backend.
+
+# 4. Run in explicit Zero-Touch Out-of-Band Mode (no HTTP port changes; watches /proc, sessions, journald & iptables)
 sudo ./bin/sentinel-linux-amd64 run -no-proxy -firewall -log-file /var/log/php2shell-sentinel.log
+
+# 4b. Or run the in-line shield directly (proxy-specific flags imply -proxy)
+sudo ./bin/sentinel-linux-amd64 run -listen 127.0.0.1:8080 -backend http://127.0.0.1:8081 -firewall
 
 # 5. Verify systemd service status, live telemetry, and journal logs
 sudo systemctl status php2shell-sentinel
@@ -127,6 +188,7 @@ Run these commands from an **Elevated PowerShell** or **Administrator Command Pr
 .\bin\sentinel-windows-amd64.exe run -no-proxy -firewall -log-file C:\ProgramData\php2shell-sentinel\sentinel.log
 
 # 5. Run with In-Line HTTP Shield Proxy in front of IIS / Apache / PHP-CGI on Windows
+#    (-listen/-backend imply -proxy; point backend at the real PHP listener)
 .\bin\sentinel-windows-amd64.exe run -listen 127.0.0.1:8080 -backend http://127.0.0.1:8081 -firewall
 
 # 6. Check Windows Service status, query live telemetry, or stop/uninstall the Windows Service
@@ -141,3 +203,28 @@ netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel
 .\bin\sentinel-windows-amd64.exe stop
 .\bin\sentinel-windows-amd64.exe uninstall
 ```
+
+---
+
+## Limitations & Operational Notes
+
+- **Sentinel is mitigation, not a PHP patch.** Keep
+  `session.upload_progress.enabled = Off` and upgrade to a fixed PHP release
+  (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12+ for the affected lines).
+- **Process scanning is sample-based.** The default 150ms polling interval can
+  miss a very short-lived command such as `system('id')`, while reliably
+  catching longer-lived shells and reverse-connection helpers. The WAF and
+  php.ini hardening are the primary controls.
+- **Response-body version disclosure is application-owned.** Sentinel strips
+  `X-Powered-By` and quarantines known heap/OOM response leaks, but it does not
+  rewrite arbitrary application output. Do not print `PHP_VERSION` in
+  production pages; disable `display_errors` and patch the runtime.
+- **A blocked probe can look "inconclusive" to scanners.** `php2shell-scanner`
+  reports `INCONCLUSIVE` when it receives Sentinel's `403` instead of a PHP
+  crash/response. That is expected: the probe never reached PHP. Use Sentinel's
+  rule IDs and logs as the source of truth.
+- **The 3-probe/60s auto-ban is intentional.** Sequential rule-by-rule testing
+  requires a fresh process state, or the ban will mask later rule IDs.
+- **Keep the status API local.** If `status_addr` is exposed remotely, enable
+  `status_allow_remote` and configure `status_auth_token`; `DELETE /bans` stays
+  disabled without a token.

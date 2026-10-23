@@ -70,6 +70,13 @@ fi
 "$INSTALL_BIN" start
 
 echo "[+] PHP2Shell Sentinel is installed and running!"
+echo "    Mode:          out-of-band (proxy disabled by default; web ports unchanged)"
 echo "    Check status:  sentinel status"
 echo "    Service logs:  sudo journalctl -u php2shell-sentinel -f"
 echo "    Harden php.ini: sudo sentinel harden"
+echo ""
+echo "[*] Optional in-line HTTP WAF:"
+echo "    Set \"proxy_enabled\": true, \"listen_addr\": \"127.0.0.1:8080\", and a real"
+echo "    \"backend_url\" (for example http://127.0.0.1:8081) in ${CONFIG_FILE},"
+echo "    then run: sudo systemctl restart php2shell-sentinel"
+echo "    Route public traffic to listen_addr; do not expose the PHP backend."

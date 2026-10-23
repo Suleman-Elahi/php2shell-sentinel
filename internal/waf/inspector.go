@@ -40,8 +40,10 @@ var (
 )
 
 var (
-	// Matches serialized PHP objects/references inside multipart filenames (Chain C)
-	serializedFilenameRegex = regexp.MustCompile(`(?i)(\|[OaCrR]:\d+:|[OaC]:\d+:"[^"]+"|\bR:\d+;)`)
+	// Matches serialized PHP objects/custom-serializable values (and explicit
+	// references) inside multipart filenames (Chain C). Plain arrays (`|a:`)
+	// are legitimate upload-progress state and must not be blocked here.
+	serializedFilenameRegex = regexp.MustCompile(`(?i)(\|[OC]:\d+:|[OC]:\d+:"[^"]+"|\b[RC]:\d+;)`)
 
 	// Matches LFI session inclusion paths and PEAR RCE gadgets (Chain A & syrax Stage 4)
 	lfiSessionRegex = regexp.MustCompile(`(?i)(/sess_[a-z0-9,-]+|/php/sessions?/sess_|/tmp/sessions?/sess_|pearcmd\.php|\+config-create\+)`)

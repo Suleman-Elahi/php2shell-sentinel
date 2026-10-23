@@ -6,7 +6,7 @@
   "status_addr": "127.0.0.1:9095",
   "status_allow_remote": false,
   "status_auth_token": "",
-  "proxy_enabled": true,
+  "proxy_enabled": false,
   "listen_addr": "127.0.0.1:8080",
   "backend_url": "http://127.0.0.1:8081",
   "max_body_bytes": 8388608,

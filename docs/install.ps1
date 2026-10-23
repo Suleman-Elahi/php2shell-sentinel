@@ -55,6 +55,12 @@ if (Test-Path $ConfigPath) {
 & $BinPath start
 
 Write-Host "[+] PHP2Shell Sentinel is installed and running as a Windows Service!" -ForegroundColor Green
+Write-Host "    Mode:                out-of-band (proxy disabled by default; web ports unchanged)"
 Write-Host "    Check live status:   sentinel.exe status"
 Write-Host "    Check SCM service:   Get-Service PHP2ShellSentinel"
 Write-Host "    Harden php.ini:      sentinel.exe harden"
+Write-Host ""
+Write-Host "[*] Optional in-line HTTP WAF:" -ForegroundColor Cyan
+Write-Host "    Set proxy_enabled=true, listen_addr=127.0.0.1:8080, and a real backend_url"
+Write-Host "    in $ConfigPath, then restart the service. Route public traffic to listen_addr;"
+Write-Host "    do not expose the PHP backend directly."

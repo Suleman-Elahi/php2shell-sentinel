@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -101,6 +102,16 @@ func (a *Agent) Run(ctx context.Context) error {
 		"backend_url": a.cfg.BackendURL,
 		"status_addr": a.cfg.StatusAddr,
 	})
+
+	if a.cfg.ProxyEnabled {
+		a.logger.Info("waf-proxy", "starting", "In-line HTTP shield enabled; public traffic must be routed through listen_addr", map[string]string{
+			"listen_addr": a.cfg.ListenAddr,
+			"backend_url": a.cfg.BackendURL,
+		})
+		go a.warnIfBackendUnreachable()
+	} else {
+		a.logger.Info("agent", "out_of_band", "In-line HTTP shield disabled; running session, process, log, and hardening guards only", nil)
+	}
 
 	if a.cfg.AutoHardenOnStart {
 		a.runStartupHardening()
@@ -233,6 +244,43 @@ func (a *Agent) Run(ctx context.Context) error {
 	wg.Wait()
 	a.logger.Info("agent", "shutdown", "PHP2Shell Sentinel stopped cleanly", nil)
 	return runErr
+}
+
+// warnIfBackendUnreachable makes deployment mistakes obvious in the journal:
+// a proxy that is enabled before its PHP backend listens would otherwise only
+// surface as generic 502 responses to clients.
+func (a *Agent) warnIfBackendUnreachable() {
+	u, err := url.Parse(a.cfg.BackendURL)
+	if err != nil || u.Host == "" {
+		a.logger.Log(audit.Event{
+			Severity:  audit.SeverityWarn,
+			Component: "waf-proxy",
+			Action:    "backend_unreachable",
+			Message:   fmt.Sprintf("invalid backend_url %q; in-line proxy will return 502 until it is corrected", a.cfg.BackendURL),
+		})
+		return
+	}
+
+	host := u.Host
+	if u.Port() == "" {
+		port := "80"
+		if u.Scheme == "https" {
+			port = "443"
+		}
+		host = net.JoinHostPort(u.Hostname(), port)
+	}
+
+	conn, err := net.DialTimeout("tcp", host, 750*time.Millisecond)
+	if err != nil {
+		a.logger.Log(audit.Event{
+			Severity:  audit.SeverityWarn,
+			Component: "waf-proxy",
+			Action:    "backend_unreachable",
+			Message:   fmt.Sprintf("cannot reach backend_url %q (%v); in-line proxy will return 502 until the PHP backend is available", a.cfg.BackendURL, err),
+		})
+		return
+	}
+	_ = conn.Close()
 }
 
 func (a *Agent) runStartupHardening() {

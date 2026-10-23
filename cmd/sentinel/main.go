@@ -97,6 +97,7 @@ func cmdRun(args []string, stderr io.Writer) int {
 	mode := fs.String("mode", "", "Override protection mode: block or monitor")
 	logFile := fs.String("log-file", "", "Write structured event logs to this file path")
 	logFormat := fs.String("log-format", "", "Log format: json or text")
+	proxy := fs.Bool("proxy", false, "Enable the in-line HTTP shield proxy (requires -backend or backend_url in config)")
 	noProxy := fs.Bool("no-proxy", false, "Zero-touch out-of-band mode: run host guards (session, process, log/journal, firewall) without HTTP proxy")
 	firewallBan := fs.Bool("firewall", false, "Automatically insert OS firewall DROP rules (Linux iptables / Windows netsh advfirewall) for banned IPs")
 
@@ -128,8 +129,13 @@ func cmdRun(args []string, stderr io.Writer) int {
 	if *logFormat != "" {
 		cfg.LogFormat = *logFormat
 	}
-	if *noProxy {
+	switch {
+	case *noProxy:
+		// Out-of-band mode always wins if both flags are supplied.
 		cfg.ProxyEnabled = false
+	case *proxy || *listenAddr != "" || *backendURL != "":
+		// Supplying proxy-specific flags is an explicit request to run in-line.
+		cfg.ProxyEnabled = true
 	}
 	if *firewallBan {
 		cfg.FirewallBanEnabled = true

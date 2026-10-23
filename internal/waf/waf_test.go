@@ -67,8 +67,18 @@ func TestShieldProxy_BlocksAllPHP2ShellVectors(t *testing.T) {
 			headers: map[string]string{
 				"Content-Type": "multipart/form-data; boundary=---bound123",
 			},
-			body:         "-----bound123\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nJPEGDATA\r\n-----bound123--\r\n",
-			wantStatus:   http.StatusOK,
+			body:       "-----bound123\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nJPEGDATA\r\n-----bound123--\r\n",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "Legitimate upload filename containing a serialized array marker passes",
+			method: http.MethodPost,
+			path:   "/upload.php",
+			headers: map[string]string{
+				"Content-Type": "multipart/form-data; boundary=---b",
+			},
+			body:       "-----b\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"report|a:1:{s:1:\\\"x\\\";}.txt\"\r\n\r\nJPEGDATA\r\n-----b--\r\n",
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:   "SID 2026100: Blocks PHP_SESSION_UPLOAD_PROGRESS in multipart POST",

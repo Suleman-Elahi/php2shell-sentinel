@@ -78,6 +78,7 @@ func startCorpusAgent(t *testing.T, backendURL string) (string, func()) {
 	}
 
 	cfg := config.Default()
+	cfg.ProxyEnabled = true
 	cfg.ListenAddr = addr
 	cfg.StatusAddr = ""
 	cfg.BackendURL = backendURL

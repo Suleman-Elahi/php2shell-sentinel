@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -91,14 +92,17 @@ type Config struct {
 // Default returns a lightweight, production-ready configuration tailored to the host OS.
 func Default() *Config {
 	cfg := &Config{
-		Mode:                    ModeBlock,
-		LogFile:                 "", // stderr by default, or file when specified
-		LogFormat:               "json",
-		LogLevel:                "info",
-		StatusAddr:              "127.0.0.1:9095",
-		StatusAllowRemote:       false,
-		StatusAuthToken:         "",
-		ProxyEnabled:            true,
+		Mode:              ModeBlock,
+		LogFile:           "", // stderr by default, or file when specified
+		LogFormat:         "json",
+		LogLevel:          "info",
+		StatusAddr:        "127.0.0.1:9095",
+		StatusAllowRemote: false,
+		StatusAuthToken:   "",
+		// Out-of-band host guards are safe to enable by default. The in-line
+		// proxy is opt-in because it must be pointed at the real PHP backend;
+		// enabling it against a guessed/placeholder upstream would break traffic.
+		ProxyEnabled:            false,
 		ListenAddr:              "127.0.0.1:8080",
 		BackendURL:              "http://127.0.0.1:8081",
 		MaxBodyBytes:            8 * 1024 * 1024, // 8 MiB ceiling to prevent OOM bailout
@@ -355,6 +359,24 @@ func (c *Config) Validate() error {
 	}
 	if c.RequestReadTimeout <= 0 {
 		c.RequestReadTimeout = 30 * time.Second
+	}
+	if c.ProxyEnabled {
+		if c.ListenAddr == "" {
+			return fmt.Errorf("listen_addr is required when proxy_enabled is true")
+		}
+		if _, _, err := net.SplitHostPort(c.ListenAddr); err != nil {
+			return fmt.Errorf("invalid listen_addr %q: %w", c.ListenAddr, err)
+		}
+		if c.BackendURL == "" {
+			return fmt.Errorf("backend_url is required when proxy_enabled is true")
+		}
+		backend, err := url.Parse(c.BackendURL)
+		if err != nil {
+			return fmt.Errorf("invalid backend_url %q: %w", c.BackendURL, err)
+		}
+		if (backend.Scheme != "http" && backend.Scheme != "https") || backend.Host == "" {
+			return fmt.Errorf("invalid backend_url %q: must be an absolute http:// or https:// URL", c.BackendURL)
+		}
 	}
 	if c.StatusAddr != "" {
 		host, _, err := net.SplitHostPort(c.StatusAddr)

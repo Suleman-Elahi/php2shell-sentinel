@@ -70,3 +70,37 @@ func TestSessionGuard_NeutralizesPoisonedAndInflatedSessions(t *testing.T) {
 		t.Errorf("expected 3 quarantined forensic files, got %d (err=%v)", len(qEntries), err)
 	}
 }
+
+func TestSessionGuard_UploadProgressArrayIsNotClassifiedAsHandlerMismatch(t *testing.T) {
+	sessDir := t.TempDir()
+
+	cfg := config.Default()
+	cfg.SessionDirs = []string{sessDir}
+	cfg.QuarantineDir = ""
+
+	logger := audit.NewBufferLogger(io.Discard, "json")
+	guard := sessionguard.NewGuard(cfg, logger)
+
+	// PHP writes legitimate upload-progress state as a serialized array (`|a:`).
+	// This must be reported as P2S-SESS-UPROG, not P2S-SESS-MISMATCH.
+	path := filepath.Join(sessDir, "sess_upload_progress")
+	content := `upload_progress_abc123|a:1:{s:5:"value";s:1:"x";}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if mitigated := guard.ScanOnce(); mitigated != 1 {
+		t.Fatalf("expected one upload-progress session to be mitigated, got %d", mitigated)
+	}
+
+	events := logger.RecentEvents(10)
+	if len(events) != 1 {
+		t.Fatalf("expected exactly one session-guard event, got %d", len(events))
+	}
+	if events[0].RuleID != "P2S-SESS-UPROG" {
+		t.Fatalf("expected rule P2S-SESS-UPROG for serialized upload-progress array, got %q", events[0].RuleID)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected upload-progress session file to be removed, stat err = %v", err)
+	}
+}

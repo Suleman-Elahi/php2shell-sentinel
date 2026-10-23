@@ -18,7 +18,9 @@
         </div>
         <nav class="top-nav">
           <a href="#install">Quick Install</a>
+          <a href="#deployment">Deployment</a>
           <a href="#downloads">Downloads</a>
+          <a href="#verified">Verified Results</a>
           <a href="#zero-touch">Zero-Touch Mode</a>
           <a href="#cli">CLI Usage</a>
           <a href="#rules">Detection Rules</a>
@@ -35,6 +37,14 @@
     <!-- Quick Install Section -->
     <section id="install">
       <h2>Quick Install (Linux &amp; Windows)</h2>
+      <div class="notice">
+        <strong>Default install is out-of-band.</strong> The installer starts the
+        session, process, log, and hardening guards without changing web ports.
+        The in-line HTTP WAF is opt-in: set <code>proxy_enabled: true</code> and a
+        real <code>backend_url</code>, then route public traffic to
+        <code>listen_addr</code>. Never enable the proxy against a placeholder
+        backend — clients will receive <code>502</code>.
+      </div>
       <div class="card">
         <div class="url-bar">
           <label for="base-url-input">GitHub Pages / Mirror URL:</label>
@@ -78,6 +88,65 @@
       </div>
     </section>
 
+    <!-- Deployment Modes -->
+    <section id="deployment">
+      <h2>Deployment Modes</h2>
+      <p style="color:var(--muted); margin-top:0;">
+        Choose out-of-band host protection, in-line HTTP inspection, or both. The
+        proxy is intentionally <strong>disabled by default</strong> so a fresh install
+        cannot break a host whose PHP backend is not on a guessed address.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Mode</th>
+            <th>How to run</th>
+            <th>Protects</th>
+            <th>Traffic change</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Out-of-band (default)</strong></td>
+            <td><code>sentinel install</code> / <code>sentinel run</code></td>
+            <td>Session poisoning, spawned shells, runaway workers, crash/OOM log signals, php.ini hardening, optional firewall bans</td>
+            <td>None</td>
+          </tr>
+          <tr>
+            <td><strong>In-line WAF</strong></td>
+            <td><code>sentinel run -proxy -listen 127.0.0.1:8080 -backend http://127.0.0.1:8081</code></td>
+            <td>All out-of-band protections plus pre-parser blocking of multipart, request, cookie, response, and scanner vectors</td>
+            <td>Route public traffic to <code>listen_addr</code>; keep the PHP backend private</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="card" style="margin-top:16px;">
+        <h3>Enable the in-line shield</h3>
+        <p style="color:var(--muted); margin-top:0;">
+          Point <code>backend_url</code> at the real PHP listener (FPM, Apache, nginx,
+          or IIS), then route public traffic to <code>listen_addr</code>.
+        </p>
+        <div class="code-block">
+          <pre># /etc/php2shell-sentinel/sentinel.json
+"proxy_enabled": true,
+"listen_addr": "127.0.0.1:8080",
+"backend_url": "http://127.0.0.1:8081"
+
+# restart, then confirm the backend is reachable
+sudo systemctl restart php2shell-sentinel
+sudo journalctl -u php2shell-sentinel -n 20
+curl -s http://127.0.0.1:9095/status</pre>
+        </div>
+        <p style="color:var(--muted); margin:0;">
+          If the backend is unreachable, Sentinel logs
+          <code>backend_unreachable</code> and the proxy returns
+          <code>502</code>. Fix <code>backend_url</code>, or run with
+          <code>-no-proxy</code> if only out-of-band protection is intended.
+        </p>
+      </div>
+    </section>
+
     <!-- Direct Downloads Section -->
     <section id="downloads">
       <h2>Direct Downloads</h2>
@@ -101,7 +170,7 @@
         <div class="download-item">
           <div>
             <h4>Configuration &amp; Checksums</h4>
-            <p>Default JSON configuration template, installer scripts, and SHA-256 checksums for binary verification.</p>
+            <p>Default JSON configuration template (out-of-band by default; enable the proxy explicitly), installer scripts, and SHA-256 checksums for binary verification.</p>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <a class="btn-download" href="downloads/sentinel.example.json" download>sentinel.example.json</a>
@@ -111,6 +180,75 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- Verified Results -->
+    <section id="verified">
+      <h2>Verified Results (2026-10-23)</h2>
+      <p style="color:var(--muted); margin-top:0;">
+        Tested against public php2shell PoCs and a deliberately vulnerable
+        <strong>PHP 8.2.34-FPM + nginx</strong> lab: first exploitability without
+        Sentinel, then the same requests through Sentinel.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Check</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Go unit tests (<code>go test ./...</code>)</td>
+            <td><strong>PASS</strong> — all packages</td>
+          </tr>
+          <tr>
+            <td>Repository safe lab (harmless replay)</td>
+            <td><strong>PASS</strong> — <code>403 P2S-2026100</code></td>
+          </tr>
+          <tr>
+            <td>Public Chain A RCE, no Sentinel</td>
+            <td><strong>RCE CONFIRMED</strong> — <code>uid=33(www-data)</code></td>
+          </tr>
+          <tr>
+            <td>Public Chain A RCE through Sentinel</td>
+            <td><strong>BLOCKED</strong> — <code>403 P2S-2026100</code>, no command execution</td>
+          </tr>
+          <tr>
+            <td><code>php2shell-scanner</code>, no Sentinel / through Sentinel</td>
+            <td><strong>VULNERABLE</strong> / <strong>BLOCKED</strong> — <code>403 P2S-2026107-SCAN</code></td>
+          </tr>
+          <tr>
+            <td>Rule-by-rule WAF matrix</td>
+            <td><strong>19/19 PASS</strong></td>
+          </tr>
+          <tr>
+            <td>Process watchdog</td>
+            <td><strong>PASS</strong> — killed long-lived shell children, <code>P2S-PROC-EXEC</code></td>
+          </tr>
+          <tr>
+            <td>Session-file guard</td>
+            <td><strong>PASS</strong> — removed/quarantined poisoned <code>sess_*</code> files</td>
+          </tr>
+          <tr>
+            <td>php.ini hardener</td>
+            <td><strong>PASS</strong> — <code>upload_progress=Off</code>, <code>use_only_cookies=On</code>, backup created</td>
+          </tr>
+          <tr>
+            <td>Exact binary as in-line WAF</td>
+            <td><strong>PASS</strong> — clean <code>200</code>; Chain A <code>403</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="color:var(--muted);">
+        <strong>Limitations:</strong> process polling (150ms) can miss a very
+        short-lived <code>system('id')</code> child, though it catches longer-lived
+        shells. Application output that prints <code>PHP_VERSION</code> is not
+        rewritten by Sentinel. A scanner may report <code>INCONCLUSIVE</code> when
+        its probe is rejected with <code>403</code>; that is expected — the probe
+        never reached PHP. Sentinel is mitigation, not a substitute for patching PHP
+        and disabling <code>session.upload_progress.enabled</code>.
+      </p>
     </section>
 
     <!-- Zero-Touch Out-of-Band Mode -->
@@ -135,7 +273,7 @@
           </tr>
           <tr>
             <td><strong>Deleting Poisoned Sessions</strong></td>
-            <td>Watches <code>/var/lib/php/sessions</code>, <code>/tmp</code>, <code>C:\Windows\Temp</code>, and <code>C:\xampp\tmp</code> for <code>sess_*</code> files containing <code>&lt;?php</code>, <code>upload_progress_</code>, <code>|O:</code>, or <code>&gt; 4 MiB</code> inflation and quarantines/deletes them immediately.</td>
+            <td>Watches <code>/var/lib/php/sessions</code>, <code>/tmp</code>, <code>C:\Windows\Temp</code>, and <code>C:\xampp\tmp</code> for <code>sess_*</code> files containing <code>&lt;?php</code>, <code>upload_progress_</code> state, <code>|O:</code>/<code>|C:</code> object gadgets, or <code>&gt; 4 MiB</code> inflation and quarantines/deletes them immediately. Legitimate <code>upload_progress_...|a:</code> arrays are cleaned as upload state, not mislabelled as handler mismatch.</td>
             <td><strong>No</strong></td>
           </tr>
           <tr>
@@ -223,6 +361,11 @@ netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel</pre>
             <td>Aborts stalled multipart uploads (<code>&gt; 900ms</code> inter-chunk pause) before <code>php_session_track_init()</code> frees <code>arData</code>.</td>
           </tr>
           <tr>
+            <td><code>P2S-2026100-STREAM</code></td>
+            <td>CVE-2026-109618 / 109619</td>
+            <td>Sliding-window scanning of large multipart uploads with pooled buffers, preventing padding bypasses before PHP parses the body.</td>
+          </tr>
+          <tr>
             <td><code>P2S-2026101</code></td>
             <td>PR #22113</td>
             <td>Blocks <code>name="PHPSESSID"</code> in multipart request bodies (prevents <code>session.use_only_cookies</code> bypass).</td>
@@ -235,7 +378,7 @@ netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel</pre>
           <tr>
             <td><code>P2S-2026103</code></td>
             <td>Chain C (Handler Mismatch)</td>
-            <td>Blocks <code>|O:...</code> serialized object injection inside upload filenames.</td>
+            <td>Blocks <code>|O:...</code> / <code>|C:...</code> serialized object injection inside upload filenames. Plain serialized arrays (<code>|a:</code>) used by upload-progress state are not treated as object gadgets.</td>
           </tr>
           <tr>
             <td><code>P2S-2026104</code></td>
@@ -258,9 +401,9 @@ netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel</pre>
             <td>Blocks <code>a[][a][a]...</code> nested bracket probes and empty-boundary discrepancy probes; auto-bans after 3 probes/60s.</td>
           </tr>
           <tr>
-            <td><code>P2S-2026109</code> / <code>112</code></td>
-            <td>Pure HTTP ASLR Bypass</td>
-            <td>Blocks forged binary <code>Cookie: PHPSESSID</code> pointers and scrubs 800KB <code>Set-Cookie: PHPSESSID</code> heap leaks.</td>
+            <td><code>P2S-2026109</code> / <code>111</code> / <code>112</code></td>
+            <td>Pure HTTP ASLR Bypass &amp; Response Guard</td>
+            <td>Blocks forged binary <code>Cookie: PHPSESSID</code> pointers, scrubs 800KB <code>Set-Cookie: PHPSESSID</code> heap leaks, and quarantines <code>Session object destruction failed</code> / PHP OOM responses.</td>
           </tr>
           <tr>
             <td><code>P2S-20244577</code></td>

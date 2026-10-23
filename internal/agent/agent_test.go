@@ -81,6 +81,7 @@ func TestAgent_ProxyReadTimeoutClosesSlowMultipartUpload(t *testing.T) {
 
 	addr := reserveTCPAddr(t)
 	cfg := config.Default()
+	cfg.ProxyEnabled = true
 	cfg.ListenAddr = addr
 	cfg.StatusAddr = ""
 	cfg.BackendURL = backend.URL

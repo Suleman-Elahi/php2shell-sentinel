@@ -47,8 +47,13 @@
         "sentinel check\n" +
         "sudo sentinel harden\n\n" +
         "# 3. Install & start as a persistent systemd service\n" +
+        "#    (out-of-band guards by default; no web port changes)\n" +
         "sudo sentinel install\n" +
-        "sudo sentinel start";
+        "sudo sentinel start\n\n" +
+        "# 4. Optional in-line WAF: set proxy_enabled=true, listen_addr=127.0.0.1:8080,\n" +
+        "#    and backend_url=http://127.0.0.1:<real-php-port> in\n" +
+        "#    /etc/php2shell-sentinel/sentinel.json, then restart:\n" +
+        "sudo systemctl restart php2shell-sentinel";
     }
 
     var winOneLiner = document.getElementById("cmd-win-oneliner");
@@ -73,8 +78,12 @@
         '& "C:\\Program Files\\PHP2ShellSentinel\\sentinel.exe" check\n' +
         '& "C:\\Program Files\\PHP2ShellSentinel\\sentinel.exe" harden\n\n' +
         "# 3. Install & start as a Windows Background Service (Auto-Start via SCM)\n" +
+        "#    (out-of-band guards by default; no web port changes)\n" +
         '& "C:\\Program Files\\PHP2ShellSentinel\\sentinel.exe" install\n' +
-        '& "C:\\Program Files\\PHP2ShellSentinel\\sentinel.exe" start';
+        '& "C:\\Program Files\\PHP2ShellSentinel\\sentinel.exe" start\n\n' +
+        "# 4. Optional in-line WAF: set proxy_enabled=true, listen_addr,\n" +
+        "#    and backend_url in C:\\ProgramData\\php2shell-sentinel\\sentinel.json,\n" +
+        "#    then restart the service.";
     }
   }
 

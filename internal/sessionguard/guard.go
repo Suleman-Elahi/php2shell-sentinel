@@ -21,7 +21,10 @@ type fileMeta struct {
 	size    int64
 }
 
-var serializedGadgetInSessionRegex = regexp.MustCompile(`\|[OaCr]:\d+:`)
+// Only serialized objects/custom-serializable values are Chain C gadget markers.
+// Plain serialized arrays (for example the legitimate `upload_progress_x|a:1:{...}`
+// state PHP writes during uploads) must not be labelled as handler-mismatch gadgets.
+var serializedGadgetInSessionRegex = regexp.MustCompile(`\|[OC]:\d+:`)
 
 // Guard watches PHP session directories for CVE-2026-109618 / CVE-2026-109619
 // session poisoning (Chain A), handler mismatch payloads (Chain C), upload_progress
