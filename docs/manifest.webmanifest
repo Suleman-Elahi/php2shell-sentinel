@@ -1,0 +1,25 @@
+{
+  "name": "PHP2Shell Sentinel — PHP RCE Mitigation Agent & WAF",
+  "short_name": "PHP2Shell Sentinel",
+  "description": "Open-source cross-platform (Linux/Windows) mitigation agent and WAF for php2shell exploits: CVE-2026-109618, CVE-2026-109619 and CVE-2024-4577.",
+  "start_url": "https://suleman-elahi.github.io/php2shell-sentinel/",
+  "scope": "https://suleman-elahi.github.io/php2shell-sentinel/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#15803d",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "assets/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

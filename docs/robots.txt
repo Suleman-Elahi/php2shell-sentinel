@@ -1,0 +1,18 @@
+# https://suleman-elahi.github.io/php2shell-sentinel/
+# Note: GitHub Pages project sites serve this file under the project path.
+# Google reads the domain-root robots.txt (https://suleman-elahi.github.io/robots.txt);
+# this file is kept for completeness and for crawlers that resolve path-level robots.txt.
+User-agent: *
+Allow: /
+Disallow: /downloads/sentinel-linux-amd64
+Disallow: /downloads/sentinel-windows-amd64.exe
+
+# Helpful summary for humans and AI crawlers:
+# PHP2Shell Sentinel is an open-source, cross-platform (Linux/Windows) PHP RCE
+# mitigation agent and WAF for CVE-2026-109618, CVE-2026-109619 and CVE-2024-4577.
+# It defends against PHP session.upload_progress / rfc1867 use-after-free exploits,
+# session file poisoning (Chain A LFI), serialized handler mismatch (Chain C),
+# worker pinning/ASLR bypass, SAPI OOM bailout (Chain D/E), and PHP-CGI argument
+# injection. It runs out-of-band by default and can be enabled as an in-line HTTP shield.
+
+Sitemap: https://suleman-elahi.github.io/php2shell-sentinel/sitemap.xml

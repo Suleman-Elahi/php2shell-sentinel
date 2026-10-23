@@ -247,7 +247,7 @@ h3 {
   justify-content: space-between;
 }
 
-.download-item h4 {
+.download-item h3 {
   margin: 0 0 6px;
   font-family: var(--font-mono);
   font-size: 14px;
@@ -313,4 +313,40 @@ footer {
   color: var(--muted);
   font-size: 13px;
   text-align: center;
+}
+
+/* Accessibility / SEO: visually hidden skip link that becomes visible on focus */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--accent-blue);
+  color: #ffffff;
+  padding: 8px 14px;
+  border-radius: 0 0 6px 0;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+#about ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+#about li {
+  margin-bottom: 6px;
+}
+
+#faq .card h3 {
+  margin-top: 0;
+}
+
+#faq .card {
+  margin-bottom: 12px;
 }

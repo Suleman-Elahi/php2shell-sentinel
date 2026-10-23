@@ -1,22 +1,283 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PHP2Shell Sentinel — CVE-2026-109618 &amp; CVE-2026-109619 Defense Agent</title>
+
+  <!-- SEO: title, description, canonical, robots -->
+  <title>PHP2Shell Sentinel — PHP CVE-2026-109618 Mitigation Tool &amp; WAF</title>
+  <meta name="description" content="Open-source Linux/Windows PHP RCE mitigation tool and WAF that blocks php2shell session.upload_progress exploits (CVE-2026-109618 / CVE-2026-109619) with zero application changes.">
+  <meta name="keywords" content="php2shell, php2shell mitigation, php2shell tool, CVE-2026-109618, CVE-2026-109619, CVE-2024-4577, PHP RCE mitigation, PHP exploit mitigation tool, PHP WAF, PHP firewall, session.upload_progress exploit, session.upload_progress RCE defense, PHP session poisoning defense, PHP LFI to RCE defense, PHP multipart upload UAF, rfc1867 use-after-free, PHP security agent, PHP hardening tool, open source PHP firewall, ModSecurity alternative, PHP-FPM protection, Apache PHP security, nginx PHP security, Windows XAMPP WAMP security">
+  <meta name="author" content="Suleman Elahi">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1">
+  <meta name="bingbot" content="index, follow">
+  <link rel="canonical" href="https://suleman-elahi.github.io/php2shell-sentinel/">
+
+  <!-- Open Graph / Facebook / LinkedIn -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PHP2Shell Sentinel">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="PHP2Shell Sentinel — PHP CVE-2026-109618 Mitigation Tool &amp; WAF">
+  <meta property="og:description" content="Block php2shell pre-auth RCE (CVE-2026-109618 / CVE-2026-109619) on PHP 5.4–8.5 with a zero-dependency Go agent: WAF rules, session-file guard, process watchdog and php.ini hardening.">
+  <meta property="og:url" content="https://suleman-elahi.github.io/php2shell-sentinel/">
+  <meta property="og:image" content="https://suleman-elahi.github.io/php2shell-sentinel/assets/og-image.png">
+  <meta property="og:image:secure_url" content="https://suleman-elahi.github.io/php2shell-sentinel/assets/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="PHP2Shell Sentinel — open-source PHP RCE mitigation agent and WAF for CVE-2026-109618, CVE-2026-109619 and CVE-2024-4577">
+
+  <!-- Twitter / X -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="PHP2Shell Sentinel — PHP CVE-2026-109618 Mitigation Tool &amp; WAF">
+  <meta name="twitter:description" content="Open-source, cross-platform PHP RCE mitigation agent. Blocks session.upload_progress UAF, session poisoning, LFI-to-RCE and PHP-CGI injection.">
+  <meta name="twitter:image" content="https://suleman-elahi.github.io/php2shell-sentinel/assets/og-image.png">
+  <meta name="twitter:image:alt" content="PHP2Shell Sentinel logo and CVE badges">
+
+  <!-- Icons / PWA / theme -->
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="assets/apple-touch-icon.png" type="image/png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#15803d">
+  <meta name="color-scheme" content="light">
+
+  <!-- Feeds / discovery -->
+  <link rel="sitemap" type="application/xml" href="sitemap.xml">
+
   <link rel="stylesheet" href="styles.css">
+
+  <!-- Structured data (schema.org): SoftwareApplication, WebSite, WebPage, Breadcrumb, HowTo, FAQ -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#software",
+        "name": "PHP2Shell Sentinel",
+        "alternateName": "php2shell-sentinel",
+        "headline": "PHP2Shell Sentinel — PHP RCE mitigation tool and WAF",
+        "description": "Open-source, cross-platform (Linux and Windows) PHP RCE mitigation agent and HTTP WAF. Blocks php2shell session.upload_progress use-after-free exploits (CVE-2026-109618, CVE-2026-109619), session file poisoning, serialized handler mismatch, worker pinning/ASLR bypass, SAPI OOM bailout and PHP-CGI argument injection (CVE-2024-4577).",
+        "applicationCategory": "SecurityApplication",
+        "operatingSystem": "Linux, Windows",
+        "softwareVersion": "1.0.0",
+        "license": "https://opensource.org/licenses/MIT",
+        "isAccessibleForFree": true,
+        "inLanguage": "en",
+        "datePublished": "2026-10-23",
+        "dateModified": "2026-10-23",
+        "url": "https://suleman-elahi.github.io/php2shell-sentinel/",
+        "screenshot": "https://suleman-elahi.github.io/php2shell-sentinel/assets/og-image.png",
+        "image": "https://suleman-elahi.github.io/php2shell-sentinel/assets/og-image.png",
+        "downloadUrl": [
+          "https://suleman-elahi.github.io/php2shell-sentinel/downloads/sentinel-linux-amd64",
+          "https://suleman-elahi.github.io/php2shell-sentinel/downloads/sentinel-windows-amd64.exe"
+        ],
+        "featureList": [
+          "In-line HTTP WAF rules for CVE-2026-109618 / CVE-2026-109619",
+          "Session-file guard (poisoned sess_* detection and quarantine)",
+          "Cross-platform process watchdog (kills shells spawned by PHP workers)",
+          "php.ini virtual hardening (session.upload_progress.enabled = Off)",
+          "Behavioral IP quarantine with OS firewall enforcement",
+          "Log and OS journal tailer for crash and OOM bailout detection"
+        ],
+        "offers": {
+          "@type": "Offer",
+          "price": "0.00",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock",
+          "url": "https://suleman-elahi.github.io/php2shell-sentinel/#downloads"
+        },
+        "author": {
+          "@type": "Person",
+          "name": "Suleman Elahi",
+          "url": "https://github.com/Suleman-Elahi"
+        },
+        "publisher": {
+          "@type": "Person",
+          "name": "Suleman Elahi",
+          "url": "https://github.com/Suleman-Elahi"
+        },
+        "codeRepository": "https://github.com/Suleman-Elahi/php2shell-sentinel"
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#website",
+        "url": "https://suleman-elahi.github.io/php2shell-sentinel/",
+        "name": "PHP2Shell Sentinel",
+        "description": "Documentation and downloads for PHP2Shell Sentinel, an open-source PHP RCE mitigation tool and WAF.",
+        "inLanguage": "en",
+        "publisher": {
+          "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#software"
+        }
+      },
+      {
+        "@type": "WebPage",
+        "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#webpage",
+        "url": "https://suleman-elahi.github.io/php2shell-sentinel/",
+        "name": "PHP2Shell Sentinel — PHP CVE-2026-109618 Mitigation Tool & WAF",
+        "isPartOf": {
+          "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#website"
+        },
+        "about": {
+          "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#software"
+        },
+        "primaryImageOfPage": {
+          "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#primaryimage"
+        },
+        "datePublished": "2026-10-23",
+        "dateModified": "2026-10-23",
+        "inLanguage": "en",
+        "breadcrumb": {
+          "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#breadcrumb"
+        }
+      },
+      {
+        "@type": "ImageObject",
+        "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#primaryimage",
+        "url": "https://suleman-elahi.github.io/php2shell-sentinel/assets/og-image.png",
+        "width": 1200,
+        "height": 630,
+        "caption": "PHP2Shell Sentinel — open-source PHP RCE mitigation agent and WAF"
+      },
+      {
+        "@type": "BreadcrumbList",
+        "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#breadcrumb",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://suleman-elahi.github.io/php2shell-sentinel/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "PHP RCE Mitigation Tool & WAF",
+            "item": "https://suleman-elahi.github.io/php2shell-sentinel/"
+          }
+        ]
+      },
+      {
+        "@type": "HowTo",
+        "name": "How to install PHP2Shell Sentinel on a Linux server",
+        "description": "Install the open-source PHP2Shell Sentinel agent to mitigate php2shell CVE-2026-109618 / CVE-2026-109619 exploits.",
+        "totalTime": "PT5M",
+        "estimatedCost": {
+          "@type": "MonetaryAmount",
+          "currency": "USD",
+          "value": "0"
+        },
+        "tool": [
+          {
+            "@type": "HowToTool",
+            "name": "A Linux server with PHP-FPM, Apache, nginx or IIS and sudo access"
+          }
+        ],
+        "step": [
+          {
+            "@type": "HowToStep",
+            "name": "Download the agent",
+            "text": "curl -fsSL \"https://suleman-elahi.github.io/php2shell-sentinel/install.sh\" | sudo sh"
+          },
+          {
+            "@type": "HowToStep",
+            "name": "Audit and harden php.ini",
+            "text": "Run sentinel check to audit local PHP versions and php.ini files, then sudo sentinel harden to set session.upload_progress.enabled = Off with an automatic .bak backup."
+          },
+          {
+            "@type": "HowToStep",
+            "name": "Install and start the service",
+            "text": "Run sudo sentinel install and sudo sentinel start. The default deployment is out-of-band and does not change web ports."
+          },
+          {
+            "@type": "HowToStep",
+            "name": "Verify",
+            "text": "Check live telemetry with sentinel status or curl -s http://127.0.0.1:9095/status and review journalctl -u php2shell-sentinel."
+          }
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://suleman-elahi.github.io/php2shell-sentinel/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is php2shell?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "php2shell is the name given to a family of pre-authenticated PHP remote code execution exploits that abuse session.upload_progress and the rfc1867 multipart parser to trigger a use-after-free in PHP 5.4 through 8.5. Public PoCs chain several stages (session poisoning, LFI inclusion, serialized handler mismatch, worker pinning and OOM bailouts) to get command execution as the web user."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Which CVEs does PHP2Shell Sentinel mitigate?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "CVE-2026-109618 and CVE-2026-109619 (the session.upload_progress / rfc1867 UAF chains) and CVE-2024-4577 (PHP-CGI argument injection on Windows and Linux). It also blocks the common LFI-to-RCE, serialized object injection, ASLR bypass and OOM-bailout stages used by public PoCs."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How do I mitigate a PHP session.upload_progress RCE without patching PHP?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Disable the feature in php.ini (session.upload_progress.enabled = Off), upgrade PHP to a fixed release, and run a compensating control such as PHP2Shell Sentinel. Sentinel blocks the upload-progress field, aborts stalled multipart uploads, cleans poisoned session files, and quarantines attacking IPs — all without changing application code."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Does PHP2Shell Sentinel require application or framework changes?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. It runs as a host agent out-of-band by default (session guard, process watchdog, log tailer, php.ini hardening, optional firewall bans) and can be enabled as an in-line HTTP reverse-proxy shield by pointing backend_url at your existing PHP listener. Apache, nginx, IIS, PHP-FPM, XAMPP, WAMP and Laragon layouts are supported on Linux and Windows."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is PHP2Shell Sentinel free and open source?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. It is MIT-licensed, written in Go, ships as a single static binary with no runtime dependencies, and every release is accompanied by SHA-256 checksums for download verification."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is Sentinel a replacement for patching PHP?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Sentinel is mitigation. Keep session.upload_progress.enabled = Off, disable display_errors in production, and upgrade to a fixed PHP release (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12 or newer for the affected lines). Sentinel buys you time and blocks exploitation attempts in the meantime."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "How can I verify that Sentinel actually blocks the exploit?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "The project publishes verification results: a public Chain A PoC that achieves uid=33(www-data) on a vulnerable PHP 8.2.34-FPM lab is blocked with HTTP 403 (rule P2S-2026100) when routed through Sentinel, a 19-rule WAF matrix passes, and scanner probes are rejected before reaching the PHP parser."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to main content</a>
   <header>
     <div class="container">
       <div class="header-top">
         <div class="brand">
-          <h1>php2shell-sentinel</h1>
+          <h1>PHP2Shell Sentinel</h1>
           <span class="badge">v1.0.0</span>
           <span class="badge badge-cve">CVE-2026-109618</span>
           <span class="badge badge-cve">CVE-2026-109619</span>
         </div>
-        <nav class="top-nav">
+        <nav class="top-nav" aria-label="Section navigation">
+          <a href="#about">What is php2shell?</a>
           <a href="#install">Quick Install</a>
           <a href="#deployment">Deployment</a>
           <a href="#downloads">Downloads</a>
@@ -24,6 +285,8 @@
           <a href="#zero-touch">Zero-Touch Mode</a>
           <a href="#cli">CLI Usage</a>
           <a href="#rules">Detection Rules</a>
+          <a href="#faq">FAQ</a>
+          <a href="https://github.com/Suleman-Elahi/php2shell-sentinel" rel="noopener">GitHub</a>
         </nav>
       </div>
       <p class="subtitle">
@@ -33,7 +296,40 @@
     </div>
   </header>
 
-  <main class="container">
+  <main id="main" class="container">
+    <!-- What is php2shell (search-intent intro) -->
+    <section id="about">
+      <h2>What Is php2shell and How Do You Mitigate It?</h2>
+      <p style="color:var(--muted); margin-top:0;">
+        <strong>php2shell</strong> is the community name for a family of pre-authenticated
+        <strong>PHP remote code execution</strong> exploits built on
+        <code>session.upload_progress</code> and the <code>rfc1867</code> multipart parser
+        (publicly tracked as <strong>CVE-2026-109618</strong> and <strong>CVE-2026-109619</strong>).
+        A single crafted multipart upload can race PHP's upload-progress bookkeeping, free
+        session memory that the parser still references, and then reuse that memory with
+        attacker-controlled <code>PHPSESSID</code> cookies to poison a session file — which is
+        later included through an LFI sink to run arbitrary code as <code>www-data</code>.
+        Related chains abuse serialized-object mismatches, Apache/PHP-FPM worker pinning for an
+        ASLR bypass, and SAPI out-of-memory bailouts; the PHP-CGI argument-injection bug
+        (<strong>CVE-2024-4577</strong>) is blocked by the same agent.
+      </p>
+      <p style="color:var(--muted);">
+        <strong>PHP2Shell Sentinel</strong> is a free, open-source <strong>PHP exploit
+        mitigation tool</strong> — a single static Go binary you run on the PHP host or in
+        front of it as a <strong>PHP WAF</strong>. It blocks upload-progress probes before the
+        PHP parser sees them, kills poisoned <code>sess_*</code> files, terminates shells
+        spawned by compromised workers, hardens <code>php.ini</code>, and quarantines attacking
+        IPs at the OS firewall. It is a zero-dependency alternative to writing custom
+        <strong>ModSecurity</strong> or Nginx rules for these chains, works on PHP 5.4–8.5,
+        and needs <strong>no application code changes</strong>.
+      </p>
+      <ul>
+        <li><strong>Targets:</strong> <code>session.upload_progress</code> UAF (CVE-2026-109618 / CVE-2026-109619), session-file poisoning &amp; LFI-to-RCE chains, serialized handler mismatch, worker-pinning ASLR bypass, SAPI OOM bailout, and PHP-CGI injection (CVE-2024-4577).</li>
+        <li><strong>Platforms:</strong> Linux (systemd, iptables, <code>/proc</code>, journald) and Windows (SCM, netsh, Toolhelp32, Event Log) — including XAMPP, WAMP, Laragon and IIS.</li>
+        <li><strong>Deployment:</strong> out-of-band host agent by default, optional in-line HTTP reverse-proxy shield; no port or application changes required.</li>
+      </ul>
+    </section>
+
     <!-- Quick Install Section -->
     <section id="install">
       <h2>Quick Install (Linux &amp; Windows)</h2>
@@ -67,7 +363,24 @@
           <h3>Option B: Step-by-Step Binary Download via curl</h3>
           <div class="code-block">
             <button type="button" class="copy-btn" data-copy-target="cmd-linux-curl-bin">Copy</button>
-            <pre id="cmd-linux-curl-bin"></pre>
+            <pre id="cmd-linux-curl-bin"># 1. Download static Linux binary
+curl -fsSL "https://suleman-elahi.github.io/php2shell-sentinel/downloads/sentinel-linux-amd64" -o sentinel
+chmod +x sentinel
+sudo mv sentinel /usr/local/bin/sentinel
+
+# 2. Audit PHP installation &amp; apply php.ini virtual patches
+sentinel check
+sudo sentinel harden
+
+# 3. Install &amp; start as a persistent systemd service
+#    (out-of-band guards by default; no web port changes)
+sudo sentinel install
+sudo sentinel start
+
+# 4. Optional in-line WAF: set proxy_enabled=true, listen_addr=127.0.0.1:8080,
+#    and backend_url=http://127.0.0.1:&lt;real-php-port&gt; in
+#    /etc/php2shell-sentinel/sentinel.json, then restart:
+sudo systemctl restart php2shell-sentinel</pre>
           </div>
         </div>
 
@@ -82,7 +395,22 @@
           <h3>Option B: Step-by-Step Download &amp; Windows Service Setup</h3>
           <div class="code-block">
             <button type="button" class="copy-btn" data-copy-target="cmd-win-manual">Copy</button>
-            <pre id="cmd-win-manual"></pre>
+            <pre id="cmd-win-manual"># 1. Download static Windows binary (Run in Elevated PowerShell)
+New-Item -ItemType Directory -Force -Path "C:\Program Files\PHP2ShellSentinel" | Out-Null
+Invoke-WebRequest -Uri "https://suleman-elahi.github.io/php2shell-sentinel/downloads/sentinel-windows-amd64.exe" -OutFile "C:\Program Files\PHP2ShellSentinel\sentinel.exe"
+
+# 2. Audit PHP installation &amp; apply php.ini virtual patches
+&amp; "C:\Program Files\PHP2ShellSentinel\sentinel.exe" check
+&amp; "C:\Program Files\PHP2ShellSentinel\sentinel.exe" harden
+
+# 3. Install &amp; start as a Windows Background Service (Auto-Start via SCM)
+#    (out-of-band guards by default; no web port changes)
+&amp; "C:\Program Files\PHP2ShellSentinel\sentinel.exe" install
+&amp; "C:\Program Files\PHP2ShellSentinel\sentinel.exe" start
+
+# 4. Optional in-line WAF: set proxy_enabled=true, listen_addr,
+#    and backend_url in C:\ProgramData\php2shell-sentinel\sentinel.json,
+#    then restart the service.</pre>
           </div>
         </div>
       </div>
@@ -153,7 +481,7 @@ curl -s http://127.0.0.1:9095/status</pre>
       <div class="download-grid">
         <div class="download-item">
           <div>
-            <h4>sentinel-linux-amd64</h4>
+            <h3>sentinel-linux-amd64</h3>
             <p>Static Linux x86_64 binary (<code>CGO_ENABLED=0</code>). Includes WAF proxy, <code>/proc</code> watchdog, session guard, and <code>systemd</code> manager.</p>
           </div>
           <a class="btn-download" href="downloads/sentinel-linux-amd64" download>Download Linux Binary</a>
@@ -161,7 +489,7 @@ curl -s http://127.0.0.1:9095/status</pre>
 
         <div class="download-item">
           <div>
-            <h4>sentinel-windows-amd64.exe</h4>
+            <h3>sentinel-windows-amd64.exe</h3>
             <p>Static Windows x86_64 executable. Native Windows Service Control Manager (SCM) &amp; Win32 Toolhelp32 process watchdog.</p>
           </div>
           <a class="btn-download" href="downloads/sentinel-windows-amd64.exe" download>Download Windows .exe</a>
@@ -169,7 +497,7 @@ curl -s http://127.0.0.1:9095/status</pre>
 
         <div class="download-item">
           <div>
-            <h4>Configuration &amp; Checksums</h4>
+            <h3>Configuration &amp; Checksums</h3>
             <p>Default JSON configuration template (out-of-band by default; enable the proxy explicitly), installer scripts, and SHA-256 checksums for binary verification.</p>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -423,11 +751,108 @@ netsh advfirewall firewall show rule name=all | findstr PHP2ShellSentinel</pre>
         </tbody>
       </table>
     </section>
+
+    <!-- Frequently Asked Questions -->
+    <section id="faq">
+      <h2>Frequently Asked Questions</h2>
+
+      <div class="card">
+        <h3>What is php2shell?</h3>
+        <p style="color:var(--muted); margin:0;">
+          <strong>php2shell</strong> is the community name for a family of pre-authenticated
+          <strong>PHP remote code execution</strong> exploits built on
+          <code>session.upload_progress</code> and the <code>rfc1867</code> multipart parser.
+          A crafted multipart upload races PHP's upload-progress bookkeeping to trigger a
+          use-after-free, poisons a session file (typically via a forged
+          <code>PHPSESSID</code>), and includes it through an LFI sink to run code as
+          <code>www-data</code>. Public PoCs chain several additional stages — serialized
+          handler mismatch, worker pinning for an ASLR bypass, and SAPI OOM bailouts.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Which CVEs does PHP2Shell Sentinel mitigate?</h3>
+        <p style="color:var(--muted); margin:0;">
+          <strong>CVE-2026-109618</strong> and <strong>CVE-2026-109619</strong> (the
+          <code>session.upload_progress</code> / <code>rfc1867</code> UAF chains) and
+          <strong>CVE-2024-4577</strong> (PHP-CGI argument injection on Windows and Linux).
+          It also blocks the LFI-to-RCE, serialized-object injection, ASLR bypass and
+          OOM-bailout stages used by public PoCs.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>How do I mitigate a PHP session.upload_progress RCE without patching PHP?</h3>
+        <p style="color:var(--muted); margin:0;">
+          Set <code>session.upload_progress.enabled = Off</code>, upgrade PHP to a fixed
+          release, and run a compensating control. Sentinel blocks the upload-progress field,
+          aborts stalled multipart uploads (sub-second inter-chunk deadline), cleans poisoned
+          session files, and quarantines attacking IPs — all without changing application code.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Does it require application or framework changes?</h3>
+        <p style="color:var(--muted); margin:0;">
+          No. Sentinel runs as a host agent out-of-band by default (session guard, process
+          watchdog, log tailer, php.ini hardening, optional firewall bans) and can be enabled
+          as an in-line HTTP reverse-proxy shield by pointing <code>backend_url</code> at your
+          existing PHP listener. Apache, nginx, IIS, PHP-FPM, XAMPP, WAMP and Laragon layouts
+          are supported on Linux and Windows.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Is PHP2Shell Sentinel free and open source?</h3>
+        <p style="color:var(--muted); margin:0;">
+          Yes — MIT licensed, written in Go, shipped as a single static binary with no runtime
+          dependencies, and published with SHA-256 checksums for download verification.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Is Sentinel a replacement for patching PHP?</h3>
+        <p style="color:var(--muted); margin:0;">
+          No — it is <strong>mitigation</strong>. Keep <code>session.upload_progress.enabled = Off</code>,
+          disable <code>display_errors</code> in production, and upgrade to a fixed PHP release
+          (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12 or newer for the affected lines). Sentinel buys
+          time and blocks exploitation attempts in the meantime.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>How can I verify that it actually blocks the exploit?</h3>
+        <p style="color:var(--muted); margin:0;">
+          The project publishes verification results: a public Chain A PoC that achieves
+          <code>uid=33(www-data)</code> on a vulnerable PHP 8.2.34-FPM lab is blocked with
+          <code>HTTP 403</code> (rule <code>P2S-2026100</code>) when routed through Sentinel,
+          a 19-rule WAF matrix passes, and scanner probes are rejected before reaching the PHP
+          parser. See <a href="#verified">Verified Results</a> and the
+          <a href="https://github.com/Suleman-Elahi/php2shell-sentinel" rel="noopener">GitHub repository</a>.
+        </p>
+      </div>
+    </section>
   </main>
 
   <footer>
     <div class="container">
-      PHP2Shell Sentinel — Cross-Platform Runtime &amp; Network Defense for Legacy and Modern PHP
+      <p style="margin:0 0 6px;">
+        <strong>PHP2Shell Sentinel</strong> — cross-platform runtime &amp; network defense for
+        legacy and modern PHP (CVE-2026-109618 · CVE-2026-109619 · CVE-2024-4577).
+      </p>
+      <nav aria-label="Footer navigation" style="font-size:13px;">
+        <a href="#about">What is php2shell?</a> ·
+        <a href="#install">Install</a> ·
+        <a href="#downloads">Downloads</a> ·
+        <a href="#rules">Detection Rules</a> ·
+        <a href="#faq">FAQ</a> ·
+        <a href="https://github.com/Suleman-Elahi/php2shell-sentinel" rel="noopener">GitHub</a> ·
+        <a href="https://github.com/Suleman-Elahi/php2shell-sentinel/blob/main/LICENSE" rel="noopener">MIT License</a>
+      </nav>
+      <p style="margin:6px 0 0;">
+        Maintained by <a href="https://github.com/Suleman-Elahi" rel="noopener">Suleman Elahi</a>.
+        Content is MIT licensed.
+      </p>
     </div>
   </footer>
 

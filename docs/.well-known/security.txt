@@ -1,0 +1,5 @@
+Contact: https://github.com/Suleman-Elahi/php2shell-sentinel/issues
+Policy: https://github.com/Suleman-Elahi/php2shell-sentinel/blob/main/README.md
+Preferred-Languages: en
+Expires: 2027-10-23T00:00:00.000Z
+Acknowledgments: https://github.com/Suleman-Elahi/php2shell-sentinel

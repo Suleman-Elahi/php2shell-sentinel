@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PHP2Shell Sentinel">
+  <title>PHP2Shell Sentinel</title>
+  <rect width="64" height="64" rx="10" fill="#f8fafc"/>
+  <path d="M32 6 52 16v16c0 13-8.6 22.2-20 26C20.6 54.2 12 45 12 32V16z" fill="#15803d"/>
+  <path d="M32 11 47.5 18.8v13.4c0 10.4-6.7 17.9-15.5 21.1-8.8-3.2-15.5-10.7-15.5-21.1V18.8z" fill="#ffffff"/>
+  <text x="32" y="37" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700" fill="#15803d" text-anchor="middle">P2S</text>
+</svg>
