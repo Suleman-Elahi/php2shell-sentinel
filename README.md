@@ -1,5 +1,12 @@
 # PHP2Shell Sentinel (`php2shell-sentinel`)
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-15803d.svg)](LICENSE)
+[![Go 1.24](https://img.shields.io/badge/Go-1.24-2563eb.svg)](https://go.dev/dl/)
+[![CI](https://github.com/Suleman-Elahi/php2shell-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/Suleman-Elahi/php2shell-sentinel/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](#deployment-modes)
+[![Version](https://img.shields.io/badge/version-1.0.0-a16207.svg)](#cli-usage--background-service-deployment-linux)
+[![No telemetry](https://img.shields.io/badge/telemetry-none-15803d.svg)](#safety-transparency--supply-chain-trust)
+
 **PHP2Shell Sentinel** is an intelligent, zero-dependency, low-resource cross-platform defense daemon written in Go (`CGO_ENABLED=0` static binary) to detect, log, prevent, and actively mitigate **php2shell** exploits (**CVE-2026-109618** & **CVE-2026-109619**, plus **CVE-2024-4577**) on both **Linux** and **Windows** servers—with first-class protection for unpatched End-of-Life PHP deployments (`5.4` through `8.1`) and vulnerable `8.2`–`8.5` installations.
 
 It supports both **In-Line Reverse Proxy WAF Mode** and **Zero-Touch Out-of-Band HIDS/HIPS Mode** (protecting PHP servers from the outside without modifying PHP code or web server ports).
@@ -21,6 +28,92 @@ The one-line installer creates a configuration with the proxy **disabled**, so a
 fresh install never breaks a host whose PHP backend is not on the guessed
 `127.0.0.1:8081` address. Enabling the proxy without a reachable backend is
 reported at startup as `backend_unreachable` and would return `502` to clients.
+
+---
+
+## Safety, Transparency & Supply-Chain Trust
+
+This section exists so you can decide whether to run this agent on a real
+server **before** you install it. Everything below is verifiable from the
+source in this repository.
+
+### It makes no outbound connections
+
+The agent performs **no update checks, no analytics, no crash reporting, and no
+phone-home**. Its complete network behavior is:
+
+| Direction | When | Where |
+| :--- | :--- | :--- |
+| **Listen** | always | status API on `127.0.0.1:9095` (loopback only by default) |
+| **Listen** | only if `proxy_enabled: true` | in-line HTTP shield on `listen_addr` |
+| **Dial** | only if `proxy_enabled: true` | the configured `backend_url` |
+| **Dial** | only if `firewall_ban_enabled: true` | local kernel netlink / `netsh` (no internet) |
+
+Nothing else touches the network. You can confirm this with `strace -f -e
+trace=network`, `jcmd`/`netstat`, or by running it in a network-isolated
+container with only the status port published.
+
+### It is a mitigation, not a patch
+
+Sentinel blocks *exploitation attempts* against the php2shell chains. It does
+not fix the underlying PHP parser bug. Keep `session.upload_progress.enabled =
+Off` and upgrade PHP; see [Limitations](#limitations--operational-notes).
+
+### Safe-by-default deployment
+
+- **Out-of-band by default.** A fresh install does not touch web ports or
+  traffic. The in-line WAF is opt-in and needs an explicit, reachable
+  `backend_url`, so it cannot break a host whose backend is on a different
+  address.
+- **`monitor` mode exists.** Set `"mode": "monitor"` to score and log attacks
+  without blocking or killing anything — good for a first day of observation.
+- **Destructive actions are gated and logged.** Process termination, session
+  quarantine, and firewall bans each have their own config switch
+  (`kill_suspicious_exec`, `delete_poisoned_sessions`, `firewall_ban_enabled`)
+  and emit an audit event when they fire.
+- **`sentinel check` is read-only.** It only audits PHP versions and `php.ini`
+  files and prints findings; it changes nothing.
+- **`sentinel harden` backs up first.** Every `php.ini` edit writes a
+  timestamped `.bak` next to the original.
+- **Quarantine, not silent deletion.** Poisoned session files are copied to
+  `/tmp/php2shell-sentinel-quarantine/` (or your configured `quarantine_dir`)
+  before removal, so nothing disappears without a forensic copy.
+
+### If it was installed by accident
+
+Removal is one command and leaves no background process, kernel module, cron
+job, or network service:
+
+```bash
+sudo sentinel uninstall     # Linux: removes the systemd unit and stops the agent
+# or on Windows (elevated):
+.\sentinel.exe uninstall
+```
+
+Files it may have created, all removable and none required by anything else:
+
+```text
+/usr/local/bin/sentinel                    # the binary
+/etc/php2shell-sentinel/sentinel.json      # config
+/var/log/php2shell-sentinel.log            # log (only if log_file was set)
+<session-dir>/*.ini.bak                    # php.ini backups (only from `harden`)
+/tmp/php2shell-sentinel-quarantine/        # quarantined session files
+```
+
+### Verify before you trust
+
+1. **Read it.** The agent is ~15 small packages under `internal/`; there is no
+   obfuscation, no generated code, and no vendored third-party blobs.
+   `go.mod` depends only on the Go standard library.
+2. **Build it from source** — the same commands CI uses are in
+   [Building](#building-statically-for-linux-and-windows).
+3. **Check the hashes** — `docs/downloads/SHA256SUMS.txt` accompanies every
+   release binary.
+4. **Reproduce the results** — the vulnerable lab (`lab/`) and the verification
+   report let you confirm both exploitability and mitigation on your own
+   machine.
+5. **Report anything surprising** — see [SECURITY.md](SECURITY.md); bypasses
+   and unintended side effects are treated as the highest-priority bugs.
 
 ---
 
