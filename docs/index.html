@@ -328,6 +328,16 @@
         <li><strong>Platforms:</strong> Linux (systemd, iptables, <code>/proc</code>, journald) and Windows (SCM, netsh, Toolhelp32, Event Log) — including XAMPP, WAMP, Laragon and IIS.</li>
         <li><strong>Deployment:</strong> out-of-band host agent by default, optional in-line HTTP reverse-proxy shield; no port or application changes required.</li>
       </ul>
+      <figure style="margin:16px 0 0;">
+        <img src="assets/php2shell-sentinel-demo.gif"
+             alt="Animated terminal recording: a public php2shell Chain A PoC executes as www-data against an unprotected PHP 8.2.34-FPM server, then the same PoC is rejected with HTTP 403 and a quarantine drop when routed through PHP2Shell Sentinel"
+             width="860" style="max-width:100%; height:auto; border:1px solid var(--border); border-radius:6px;" loading="lazy">
+        <figcaption style="color:var(--muted); font-size:13px; margin-top:6px;">
+          Live demo — the same public Chain A PoC executes as <code>www-data</code> without Sentinel, and is
+          rejected with <code>HTTP 403</code> (rule <code>P2S-2026100</code>) through Sentinel. Recorded against the
+          reproducible lab in the repository.
+        </figcaption>
+      </figure>
     </section>
 
     <!-- Quick Install Section -->

@@ -350,3 +350,12 @@ footer {
 #faq .card {
   margin-bottom: 12px;
 }
+
+figure {
+  margin: 0;
+}
+
+figcaption {
+  color: var(--muted);
+  font-size: 13px;
+}

@@ -7,6 +7,8 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-a16207.svg)](#cli-usage--background-service-deployment-linux)
 [![No telemetry](https://img.shields.io/badge/telemetry-none-15803d.svg)](#safety-transparency--supply-chain-trust)
 
+![Live demo: the same public Chain A PoC executes as www-data on an unprotected PHP 8.2.34 server and is rejected with HTTP 403 by PHP2Shell Sentinel](docs/assets/php2shell-sentinel-demo.gif)
+
 **PHP2Shell Sentinel** is an intelligent, zero-dependency, low-resource cross-platform defense daemon written in Go (`CGO_ENABLED=0` static binary) to detect, log, prevent, and actively mitigate **php2shell** exploits (**CVE-2026-109618** & **CVE-2026-109619**, plus **CVE-2024-4577**) on both **Linux** and **Windows** servers—with first-class protection for unpatched End-of-Life PHP deployments (`5.4` through `8.1`) and vulnerable `8.2`–`8.5` installations.
 
 It supports both **In-Line Reverse Proxy WAF Mode** and **Zero-Touch Out-of-Band HIDS/HIPS Mode** (protecting PHP servers from the outside without modifying PHP code or web server ports).
