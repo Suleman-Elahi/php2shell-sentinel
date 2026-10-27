@@ -269,6 +269,8 @@ These controls complement, but do not replace, patching PHP and disabling
 
 ## CLI Usage & Background Service Deployment (Linux)
 
+> **Need ready-to-use `sentinel.json` templates?** See the [**Configuration Guide (`CONFIGURATION.md`)**](CONFIGURATION.md) for copy-pasteable JSON configurations covering Monitor-Only Mode, Zero-Touch Out-of-Band Mode, `Nginx -> Sentinel -> PHP` In-Line WAF, Laravel/Symfony/WordPress queue & upload tuning, and direct HTTPS termination.
+
 ```bash
 # 1. Audit local PHP binary and php.ini files (read-only)
 ./bin/sentinel-linux-amd64 check
@@ -305,6 +307,8 @@ SENTINEL_STATUS_AUTH_TOKEN='your-token' ./bin/sentinel-linux-amd64 status
 ---
 
 ## CLI Usage & Background Service Deployment (Windows PowerShell / Administrator CMD)
+
+> **Need ready-to-use `sentinel.json` templates?** See the [**Configuration Guide (`CONFIGURATION.md`)**](CONFIGURATION.md) (including [Scenario 6: Windows Server (IIS / XAMPP / WAMP / Laragon)](CONFIGURATION.md#scenario-6-windows-server-iis--xampp--wamp--laragon)) for copy-pasteable JSON configurations and a full field reference.
 
 Run these commands from an **Elevated PowerShell** or **Administrator Command Prompt (`cmd.exe`)**:
 
