@@ -203,41 +203,6 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o b
 
 ---
 
-## Documentation Site & SEO (`docs/`, GitHub Pages)
-
-The GitHub Pages site (`docs/`) is the project's landing page and is fully
-SEO-tuned for searches such as *"php2shell mitigation tool"*, *"CVE-2026-109618
-mitigation"*, *"PHP session.upload_progress exploit defense"*, *"PHP WAF"*, and
-*"PHP RCE mitigation tool"*:
-
-- **Metadata:** keyword-optimized `<title>` and meta description, canonical URL,
-  robots directives (`index, follow, max-image-preview:large`), and
-  `lang="en" dir="ltr"`.
-- **Social previews:** Open Graph and Twitter Card tags pointing at
-  `docs/assets/og-image.png` (1200×630), plus `favicon.svg`,
-  `apple-touch-icon.png`, and a web manifest.
-- **Structured data (JSON-LD, schema.org):** `SoftwareApplication`,
-  `WebSite`, `WebPage`, `ImageObject`, `BreadcrumbList`, `HowTo`, and `FAQPage`
-  — enabling rich results for the install guide and FAQ.
-- **Crawlability:** `sitemap.xml`, `robots.txt`, `.well-known/security.txt`,
-  semantic landmarks (`<main>`, skip link, labelled `<nav>`), a clean
-  `h1 → h2 → h3` heading order, and install commands pre-rendered in the HTML
-  so crawlers and no-JS visitors see them.
-- **Content:** a search-intent "What is php2shell?" section and a FAQ that
-  targets the questions people actually search (CVEs covered, mitigation
-  without patching, zero application changes, verification).
-
-**After publishing, index it:** add
-`https://suleman-elahi.github.io/php2shell-sentinel/sitemap.xml` in Google
-Search Console and Bing Webmaster Tools, and confirm the structured data with
-the [Rich Results Test](https://search.google.com/test/rich-results). Note that
-GitHub Pages serves project sites under `/php2shell-sentinel/`, so Google reads
-the domain-level `robots.txt` (`https://suleman-elahi.github.io/robots.txt`)
-rather than the project-path one; the project `robots.txt` still declares the
-sitemap for other crawlers.
-
----
-
 ## Deployment Security Requirements
 
 - **Choose the mode deliberately.** The default configuration runs out-of-band
