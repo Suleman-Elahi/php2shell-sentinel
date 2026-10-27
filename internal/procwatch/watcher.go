@@ -32,14 +32,16 @@ type ProcessKiller func(pid int) error
 // spawning unauthorized shells or reconnaissance binaries (`sh`, `bash`, `cmd.exe`, `powershell.exe`, `nc`, `curl`),
 // as well as runaway worker memory exhaustion.
 type Watcher struct {
-	cfg        *config.Config
-	logger     *audit.Logger
-	enumerate  ProcessEnumerator
-	kill       ProcessKiller
-	phpNames   map[string]struct{}
-	blockNames map[string]struct{}
-	mu         sync.Mutex
-	alertedPID map[int]time.Time
+	cfg                   *config.Config
+	logger                *audit.Logger
+	enumerate             ProcessEnumerator
+	kill                  ProcessKiller
+	phpNames              map[string]struct{}
+	blockNames            map[string]struct{}
+	allowedParentPatterns []string
+	allowedChildPatterns  []string
+	mu                    sync.Mutex
+	alertedPID            map[int]time.Time
 
 	burstMu    sync.Mutex
 	burstUntil time.Time
@@ -56,16 +58,30 @@ func NewWatcher(cfg *config.Config, logger *audit.Logger) *Watcher {
 	for _, n := range cfg.BlockedChildNames {
 		blockSet[strings.ToLower(strings.TrimSpace(n))] = struct{}{}
 	}
+	parentPatterns := normalizePatterns(cfg.AllowedParentCmdlinePatterns)
+	childPatterns := normalizePatterns(cfg.AllowedChildCmdlinePatterns)
 	return &Watcher{
-		cfg:        cfg,
-		logger:     logger,
-		enumerate:  listProcessesOS,
-		kill:       defaultKillProcess,
-		phpNames:   phpSet,
-		blockNames: blockSet,
-		alertedPID: make(map[int]time.Time, 64),
-		burstCh:    make(chan struct{}, 1),
+		cfg:                   cfg,
+		logger:                logger,
+		enumerate:             listProcessesOS,
+		kill:                  defaultKillProcess,
+		phpNames:              phpSet,
+		blockNames:            blockSet,
+		allowedParentPatterns: parentPatterns,
+		allowedChildPatterns:  childPatterns,
+		alertedPID:            make(map[int]time.Time, 64),
+		burstCh:               make(chan struct{}, 1),
 	}
+}
+
+func normalizePatterns(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, p := range in {
+		if trimmed := strings.ToLower(strings.TrimSpace(p)); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // SetEnumeratorAndKiller allows unit tests to inject a mock process table and killer.
@@ -152,7 +168,7 @@ func (w *Watcher) ScanOnce() int {
 		}
 
 		// 1. Check if this process is a PHP worker exceeding MaxWorkerRSSMB
-		if w.cfg.MaxWorkerRSSMB > 0 && w.isPHPProcess(proc.Name) {
+		if w.cfg.MaxWorkerRSSMB > 0 && w.isPHPWorker(proc) {
 			maxKB := w.cfg.MaxWorkerRSSMB * 1024
 			if proc.RSSKB > maxKB {
 				if _, already := w.alertedPID[proc.PID]; !already {
@@ -194,9 +210,9 @@ func (w *Watcher) ScanOnce() int {
 
 		phpAncestor := false
 		ancestorProc := parent
-		if w.isPHPProcess(parent.Name) {
+		if w.isPHPWorker(parent) {
 			phpAncestor = true
-		} else if gp, hasGP := byPID[parent.PPID]; hasGP && w.isPHPProcess(gp.Name) {
+		} else if gp, hasGP := byPID[parent.PPID]; hasGP && w.isPHPWorker(gp) && !matchesAnyPattern(parent.Cmdline, w.allowedParentPatterns) {
 			phpAncestor = true
 			ancestorProc = gp
 		}
@@ -252,15 +268,43 @@ func (w *Watcher) ScanOnce() int {
 	return interventions
 }
 
-func (w *Watcher) isPHPProcess(name string) bool {
-	base := strings.ToLower(filepath.Base(strings.TrimSpace(name)))
+func (w *Watcher) isPHPWorker(proc ProcInfo) bool {
+	if matchesAnyPattern(proc.Cmdline, w.allowedParentPatterns) {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(proc.Name)))
 	if _, ok := w.phpNames[base]; ok {
 		return true
 	}
-	return strings.HasPrefix(base, "php-fpm") || strings.HasPrefix(base, "php-cgi")
+	if strings.HasPrefix(base, "php-fpm") || strings.HasPrefix(base, "php-cgi") {
+		return true
+	}
+	// Bare `php` / `php8.x` binaries are only treated as web workers when running
+	// PHP's built-in HTTP server (`php -S host:port`), sparing CLI scripts, queue workers, and Composer.
+	if base == "php" || base == "php.exe" ||
+		strings.HasPrefix(base, "php5") || strings.HasPrefix(base, "php7") || strings.HasPrefix(base, "php8") {
+		return isBuiltinWebServerCmdline(proc.Cmdline)
+	}
+	return false
+}
+
+func isBuiltinWebServerCmdline(cmdline string) bool {
+	fields := strings.Fields(cmdline)
+	for i, f := range fields {
+		if f == "-S" && i+1 < len(fields) && strings.Contains(fields[i+1], ":") {
+			return true
+		}
+		if strings.HasPrefix(f, "-S") && len(f) > 2 && strings.Contains(f[2:], ":") {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *Watcher) isBlockedChild(name, cmdline string) bool {
+	if matchesAnyPattern(cmdline, w.allowedChildPatterns) {
+		return false
+	}
 	base := strings.ToLower(filepath.Base(strings.TrimSpace(name)))
 	if _, ok := w.blockNames[base]; ok {
 		return true
@@ -269,6 +313,19 @@ func (w *Watcher) isBlockedChild(name, cmdline string) bool {
 	return strings.Contains(lowerCmd, "/dev/tcp/") ||
 		strings.Contains(lowerCmd, "mkfifo") ||
 		strings.Contains(lowerCmd, "base64 -d")
+}
+
+func matchesAnyPattern(cmdline string, patterns []string) bool {
+	if len(patterns) == 0 || cmdline == "" {
+		return false
+	}
+	lower := strings.ToLower(cmdline)
+	for _, pat := range patterns {
+		if pat != "" && strings.Contains(lower, pat) {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultKillProcess(pid int) error {

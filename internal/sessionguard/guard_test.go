@@ -104,3 +104,75 @@ func TestSessionGuard_UploadProgressArrayIsNotClassifiedAsHandlerMismatch(t *tes
 		t.Fatalf("expected upload-progress session file to be removed, stat err = %v", err)
 	}
 }
+
+func TestSessionGuard_ScrubsUploadProgressInPlacePreservingUserSession(t *testing.T) {
+	sessDir := t.TempDir()
+	quarantineDir := t.TempDir()
+
+	cfg := config.Default()
+	cfg.SessionDirs = []string{sessDir}
+	cfg.QuarantineDir = quarantineDir
+
+	logger := audit.NewBufferLogger(io.Discard, "json")
+	guard := sessionguard.NewGuard(cfg, logger)
+
+	// Active user session with both login keys and an upload_progress_ entry
+	path := filepath.Join(sessDir, "sess_active_user")
+	original := `user_id|i:42;upload_progress_chunk1|a:2:{s:14:"content_length";i:1048576;s:4:"done";b:0;}role|s:6:"member";`
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if mitigated := guard.ScanOnce(); mitigated != 1 {
+		t.Fatalf("expected 1 session file to be scrubbed in place, got %d", mitigated)
+	}
+
+	// File must still exist with user_id and role intact, and upload_progress_ removed
+	afterBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected session file to remain on disk after in-place scrub: %v", err)
+	}
+	want := `user_id|i:42;role|s:6:"member";`
+	if string(afterBytes) != want {
+		t.Fatalf("scrubbed session content = %q, want %q", string(afterBytes), want)
+	}
+
+	// Second scan must not re-trigger on the already cleaned file
+	if mitigated := guard.ScanOnce(); mitigated != 0 {
+		t.Fatalf("expected 0 interventions on second scan of scrubbed session, got %d", mitigated)
+	}
+}
+
+func TestSessionGuard_AllowBenignUploadProgressOption(t *testing.T) {
+	sessDir := t.TempDir()
+
+	cfg := config.Default()
+	cfg.SessionDirs = []string{sessDir}
+	cfg.QuarantineDir = ""
+	cfg.AllowBenignUploadProgress = true
+
+	logger := audit.NewBufferLogger(io.Discard, "json")
+	guard := sessionguard.NewGuard(cfg, logger)
+
+	benignPath := filepath.Join(sessDir, "sess_resumable")
+	benign := `user_id|i:7;upload_progress_vid|a:1:{s:4:"done";b:0;}`
+	if err := os.WriteFile(benignPath, []byte(benign), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	poisonPath := filepath.Join(sessDir, "sess_poisoned_uprog")
+	poison := `upload_progress_vid|a:1:{s:4:"name";s:19:"<?php system('id');";}`
+	if err := os.WriteFile(poisonPath, []byte(poison), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if mitigated := guard.ScanOnce(); mitigated != 1 {
+		t.Fatalf("expected only the poisoned session to be mitigated, got %d", mitigated)
+	}
+	if _, err := os.Stat(benignPath); err != nil {
+		t.Fatalf("expected benign upload_progress session to remain intact: %v", err)
+	}
+	if _, err := os.Stat(poisonPath); !os.IsNotExist(err) {
+		t.Fatalf("expected poisoned session to be deleted even when AllowBenignUploadProgress is true")
+	}
+}

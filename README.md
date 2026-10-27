@@ -210,6 +210,43 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o b
   set `"proxy_enabled": true`, point `"backend_url"` at the real PHP backend,
   route public traffic to `"listen_addr"`, and keep the PHP backend private.
   Enabling the proxy against a placeholder backend produces `502` responses.
+- **Placing Sentinel between Nginx and your PHP app (recommended in-line topology):**
+  Terminate TLS at Nginx, serve static files directly from Nginx, and proxy PHP
+  traffic to Sentinel (`127.0.0.1:8080`), which inspects the stream and forwards
+  clean requests to your local PHP HTTP upstream (`127.0.0.1:8081`). Sentinel
+  trusts `X-Forwarded-For` and `X-Real-IP` from `trusted_proxies` (loopback
+  `127.0.0.1/32` and `::1/128` by default) so rate limits, audit logs, and
+  firewall bans target the real client IP rather than Nginx:
+  ```nginx
+  # Outer Nginx (:443 TLS termination -> Sentinel WAF on 127.0.0.1:8080)
+  location / {
+      proxy_http_version 1.1;
+      proxy_request_buffering off; # Let Sentinel inspect upload chunks in real time
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://127.0.0.1:8080;
+  }
+  ```
+  Alternatively, if Sentinel is placed directly at the edge without Nginx, pass
+  `-tls-cert` and `-tls-key` (or `tls_cert_file` / `tls_key_file`) to terminate
+  HTTPS directly on `listen_addr`.
+- **Queue workers, Composer, and CLI scripts are excluded by default.**
+  `php_process_names` targets web SAPI workers (`php-fpm`, `php-cgi`, `apache2`,
+  `httpd`, `frankenphp`, `w3wp.exe`, plus `php -S` built-in web servers) and
+  excludes CLI command lines matching `allowed_parent_cmdline_patterns`
+  (`artisan`, `composer`, `queue:work`, `messenger:consume`, `vendor/bin/`,
+  etc.). You can also allowlist specific child commands spawned by web workers
+  via `allowed_child_cmdline_patterns`.
+- **Non-destructive session upload-progress scrubbing.** When `session-guard`
+  encounters an active session file containing `upload_progress_` without PHP
+  code tags or object gadgets, `scrub_upload_progress_in_place` (default `true`)
+  strips only the `upload_progress_*` entry in place so the user's login and
+  other session variables remain intact. Sites that intentionally rely on native
+  PHP `session.upload_progress` can set `allow_benign_upload_progress: true`
+  while keeping protection against `<?php`, `|O:`, and `> 4 MiB` session
+  inflation.
 - The proxy validates `listen_addr` and `backend_url` at startup. If the backend
   is unreachable, Sentinel logs a `backend_unreachable` warning in the journal
   and continues running; fix `backend_url` or disable the proxy with

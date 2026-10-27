@@ -93,6 +93,8 @@ func cmdRun(args []string, stderr io.Writer) int {
 	cfgPath := fs.String("config", "", "Path to JSON configuration file")
 	listenAddr := fs.String("listen", "", "Override HTTP shield listen address (e.g. 127.0.0.1:8080)")
 	backendURL := fs.String("backend", "", "Override upstream PHP backend URL (e.g. http://127.0.0.1:8081)")
+	tlsCert := fs.String("tls-cert", "", "Path to TLS certificate PEM file for native HTTPS termination on listen_addr")
+	tlsKey := fs.String("tls-key", "", "Path to TLS private key PEM file for native HTTPS termination on listen_addr")
 	statusAddr := fs.String("status-addr", "", "Override local status API address (e.g. 127.0.0.1:9095)")
 	mode := fs.String("mode", "", "Override protection mode: block or monitor")
 	logFile := fs.String("log-file", "", "Write structured event logs to this file path")
@@ -117,6 +119,12 @@ func cmdRun(args []string, stderr io.Writer) int {
 	if *backendURL != "" {
 		cfg.BackendURL = *backendURL
 	}
+	if *tlsCert != "" {
+		cfg.TLSCertFile = *tlsCert
+	}
+	if *tlsKey != "" {
+		cfg.TLSKeyFile = *tlsKey
+	}
 	if *statusAddr != "" {
 		cfg.StatusAddr = *statusAddr
 	}
@@ -133,7 +141,7 @@ func cmdRun(args []string, stderr io.Writer) int {
 	case *noProxy:
 		// Out-of-band mode always wins if both flags are supplied.
 		cfg.ProxyEnabled = false
-	case *proxy || *listenAddr != "" || *backendURL != "":
+	case *proxy || *listenAddr != "" || *backendURL != "" || *tlsCert != "" || *tlsKey != "":
 		// Supplying proxy-specific flags is an explicit request to run in-line.
 		cfg.ProxyEnabled = true
 	}

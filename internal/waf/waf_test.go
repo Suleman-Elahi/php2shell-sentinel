@@ -368,6 +368,57 @@ func TestShieldProxy_ScrubsPHPVersionFromTextResponseBody(t *testing.T) {
 	}
 }
 
+func TestShieldProxy_PreservesRealClientIPBehindNginx(t *testing.T) {
+	var upstreamRealIP string
+	shield, _, logger := newTestShield(t, func(w http.ResponseWriter, r *http.Request) {
+		upstreamRealIP = r.Header.Get("X-Real-IP")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// 1. Clean request arriving via local Nginx (127.0.0.1) with X-Forwarded-For
+	cleanReq := httptest.NewRequest(http.MethodGet, "http://sentinel.local/index.php", nil)
+	cleanReq.RemoteAddr = "127.0.0.1:50000"
+	cleanReq.Header.Set("X-Forwarded-For", "203.0.113.88")
+	cleanRec := httptest.NewRecorder()
+	shield.ServeHTTP(cleanRec, cleanReq)
+
+	if cleanRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for clean request behind Nginx, got %d", cleanRec.Code)
+	}
+	if upstreamRealIP != "203.0.113.88" {
+		t.Fatalf("expected upstream PHP to receive X-Real-IP=203.0.113.88, got %q", upstreamRealIP)
+	}
+
+	// 2. Attack request arriving via local Nginx (127.0.0.1) from attacker 198.51.100.99
+	attackBody := "-----b\r\nContent-Disposition: form-data; name=\"PHP_SESSION_UPLOAD_PROGRESS\"\r\n\r\npwn\r\n-----b--\r\n"
+	attackReq := httptest.NewRequest(http.MethodPost, "http://sentinel.local/index.php", strings.NewReader(attackBody))
+	attackReq.RemoteAddr = "127.0.0.1:50001"
+	attackReq.Header.Set("Content-Type", "multipart/form-data; boundary=---b")
+	attackReq.Header.Set("X-Forwarded-For", "198.51.100.99")
+	attackRec := httptest.NewRecorder()
+	shield.ServeHTTP(attackRec, attackReq)
+
+	if attackRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for attack behind Nginx, got %d", attackRec.Code)
+	}
+
+	// Verify the audit log recorded the real attacker IP (198.51.100.99), NOT 127.0.0.1
+	events := logger.RecentEvents(5)
+	if len(events) == 0 || events[len(events)-1].ClientIP != "198.51.100.99" {
+		t.Fatalf("expected audit event ClientIP to be 198.51.100.99, got %+v", events)
+	}
+
+	// Verify another visitor behind the same Nginx (127.0.0.1) is NOT banned
+	otherReq := httptest.NewRequest(http.MethodGet, "http://sentinel.local/index.php", nil)
+	otherReq.RemoteAddr = "127.0.0.1:50002"
+	otherReq.Header.Set("X-Forwarded-For", "203.0.113.88")
+	otherRec := httptest.NewRecorder()
+	shield.ServeHTTP(otherRec, otherReq)
+	if otherRec.Code != http.StatusOK {
+		t.Fatalf("expected innocent user behind Nginx to remain unbanned (200), got %d", otherRec.Code)
+	}
+}
+
 func TestShieldProxy_DoesNotScrubBinaryResponseBody(t *testing.T) {
 	shield, _, _ := newTestShield(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")

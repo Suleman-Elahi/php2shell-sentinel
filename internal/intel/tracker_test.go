@@ -1,11 +1,45 @@
 package intel_test
 
 import (
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/legacy-php-sentinel/php2shell-sentinel/internal/intel"
 )
+
+func TestExtractClientIP_TrustedProxyAndSpoofResistance(t *testing.T) {
+	tr := intel.NewTracker(50, 100, 2, 100, 10*time.Minute, 128)
+	if err := tr.SetTrustedProxies([]string{"127.0.0.1/32", "10.0.0.0/8"}, "X-Forwarded-For"); err != nil {
+		t.Fatalf("SetTrustedProxies failed: %v", err)
+	}
+
+	// 1. Untrusted direct peer spoofing X-Forwarded-For must be ignored
+	reqSpoof := httptest.NewRequest("GET", "http://sentinel.local/index.php", nil)
+	reqSpoof.RemoteAddr = "198.51.100.200:54321"
+	reqSpoof.Header.Set("X-Forwarded-For", "1.1.1.1")
+	reqSpoof.Header.Set("X-Real-IP", "1.1.1.1")
+	if got := tr.ExtractClientIP(reqSpoof); got != "198.51.100.200" {
+		t.Fatalf("expected untrusted peer IP 198.51.100.200 (ignoring spoofed XFF), got %q", got)
+	}
+
+	// 2. Trusted local Nginx proxy (127.0.0.1) passing real client IP via X-Forwarded-For
+	// Client forged "8.8.8.8", Nginx appended "203.0.113.45". Right-to-left selection must pick 203.0.113.45.
+	reqNginx := httptest.NewRequest("GET", "http://sentinel.local/index.php", nil)
+	reqNginx.RemoteAddr = "127.0.0.1:41234"
+	reqNginx.Header.Set("X-Forwarded-For", "8.8.8.8, 203.0.113.45, 10.0.1.9")
+	if got := tr.ExtractClientIP(reqNginx); got != "203.0.113.45" {
+		t.Fatalf("expected right-most untrusted client IP 203.0.113.45, got %q", got)
+	}
+
+	// 3. Trusted local Nginx proxy passing only X-Real-IP
+	reqRealIP := httptest.NewRequest("GET", "http://sentinel.local/index.php", nil)
+	reqRealIP.RemoteAddr = "127.0.0.1:41235"
+	reqRealIP.Header.Set("X-Real-IP", "192.0.2.99")
+	if got := tr.ExtractClientIP(reqRealIP); got != "192.0.2.99" {
+		t.Fatalf("expected X-Real-IP 192.0.2.99 from trusted proxy, got %q", got)
+	}
+}
 
 func TestTracker_ConfigurableProbeEscalation(t *testing.T) {
 	now := time.Now().UTC()

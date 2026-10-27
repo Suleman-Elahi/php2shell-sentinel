@@ -222,9 +222,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := proxySrv.Serve(proxyLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			var serveErr error
+			if a.cfg.TLSCertFile != "" && a.cfg.TLSKeyFile != "" {
+				serveErr = proxySrv.ServeTLS(proxyLn, a.cfg.TLSCertFile, a.cfg.TLSKeyFile)
+			} else {
+				serveErr = proxySrv.Serve(proxyLn)
+			}
+			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 				select {
-				case errCh <- fmt.Errorf("proxy server: %w", err):
+				case errCh <- fmt.Errorf("proxy server: %w", serveErr):
 				default:
 				}
 			}

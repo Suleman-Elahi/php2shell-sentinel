@@ -6,7 +6,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"github.com/legacy-php-sentinel/php2shell-sentinel/internal/config"
 )
+
+var defaultLoopbackProxies, _ = config.ParseTrustedProxies([]string{"127.0.0.1/32", "::1/128"})
 
 // ClientState tracks behavioral telemetry, token-bucket rate limiting,
 // concurrent multipart streams (worker pinning defense), and risk score per IP.
@@ -41,6 +44,8 @@ type Tracker struct {
 	maxTrackedIPs     int
 	probeThreshold    int
 	probeWindow       time.Duration
+	trustedProxies    []*net.IPNet
+	clientIPHeader    string
 }
 
 // NewTracker constructs a bounded behavioral threat intelligence tracker.
@@ -73,7 +78,25 @@ func NewTracker(ratePerSec float64, burst, maxConcurrentMP, banThresholdScore in
 		maxTrackedIPs:     maxTrackedIPs,
 		probeThreshold:    3,
 		probeWindow:       60 * time.Second,
+		trustedProxies:    defaultLoopbackProxies,
+		clientIPHeader:    "X-Forwarded-For",
 	}
+}
+
+// SetTrustedProxies configures the CIDR ranges / IPs allowed to supply forwarded client IP headers
+// (such as Nginx, Caddy, HAProxy, or Cloudflare in front of Sentinel) and the preferred header name.
+func (t *Tracker) SetTrustedProxies(cidrs []string, clientIPHeader string) error {
+	nets, err := config.ParseTrustedProxies(cidrs)
+	if err != nil {
+		return err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.trustedProxies = nets
+	if strings.TrimSpace(clientIPHeader) != "" {
+		t.clientIPHeader = strings.TrimSpace(clientIPHeader)
+	}
+	return nil
 }
 
 // SetProbeEscalation tunes the reconnaissance-probe escalation policy. A value
@@ -91,13 +114,115 @@ func (t *Tracker) SetProbeEscalation(threshold int, window time.Duration) {
 	}
 }
 
-// ExtractClientIP extracts the remote IP address from the HTTP request.
+// ExtractClientIP resolves the real client IP using this tracker's configured trusted proxy ranges.
+// Forwarded headers are only trusted when r.RemoteAddr belongs to a trusted proxy.
+func (t *Tracker) ExtractClientIP(r *http.Request) string {
+	t.mu.Lock()
+	trusted := t.trustedProxies
+	hdr := t.clientIPHeader
+	t.mu.Unlock()
+	return ExtractClientIPWithTrustedProxies(r, trusted, hdr)
+}
+
+// ExtractClientIP extracts the remote IP address from the HTTP request, trusting loopback
+// proxies (127.0.0.1/32, ::1/128) by default for X-Forwarded-For / X-Real-IP headers.
 func ExtractClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	return ExtractClientIPWithTrustedProxies(r, defaultLoopbackProxies, "X-Forwarded-For")
+}
+
+// ExtractClientIPWithTrustedProxies extracts the client IP from r.
+// If r.RemoteAddr is not in trustedProxies, forwarded headers are ignored to prevent spoofing.
+// When r.RemoteAddr is a trusted proxy, X-Forwarded-For (or customHeader) is walked right-to-left
+// to return the first non-trusted client IP, falling back to X-Real-IP.
+func ExtractClientIPWithTrustedProxies(r *http.Request, trustedProxies []*net.IPNet, customHeader string) string {
+	if r == nil {
+		return ""
+	}
+	remoteIP := parseRemoteHost(r.RemoteAddr)
+	if remoteIP == "" {
+		return ""
+	}
+
+	if !isTrustedProxyIP(remoteIP, trustedProxies) {
+		return remoteIP
+	}
+
+	// 1. Check custom client IP header if specified (e.g., CF-Connecting-IP, True-Client-IP, X-Real-IP)
+	if customHeader != "" && !strings.EqualFold(customHeader, "X-Forwarded-For") {
+		if ip := resolveForwardedChain(r.Header.Values(customHeader), trustedProxies); ip != "" {
+			return ip
+		}
+	}
+
+	// 2. Check X-Forwarded-For right-to-left (first untrusted hop from the right)
+	if ip := resolveForwardedChain(r.Header.Values("X-Forwarded-For"), trustedProxies); ip != "" {
+		return ip
+	}
+
+	// 3. Fallback to X-Real-IP
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+		if parsed := net.ParseIP(xri); parsed != nil {
+			return parsed.String()
+		}
+	}
+
+	return remoteIP
+}
+
+func parseRemoteHost(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
 	if err == nil && host != "" {
+		if parsed := net.ParseIP(host); parsed != nil {
+			return parsed.String()
+		}
 		return host
 	}
-	return strings.TrimSpace(r.RemoteAddr)
+	trimmed := strings.TrimSpace(remoteAddr)
+	if parsed := net.ParseIP(trimmed); parsed != nil {
+		return parsed.String()
+	}
+	return trimmed
+}
+
+func isTrustedProxyIP(ipStr string, trusted []*net.IPNet) bool {
+	if len(trusted) == 0 {
+		return false
+	}
+	ip := net.ParseIP(strings.TrimSpace(ipStr))
+	if ip == nil {
+		return false
+	}
+	for _, netRange := range trusted {
+		if netRange != nil && netRange.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveForwardedChain(values []string, trusted []*net.IPNet) string {
+	if len(values) == 0 {
+		return ""
+	}
+	combined := strings.Join(values, ",")
+	parts := strings.Split(combined, ",")
+	var leftmostValid string
+	for i := len(parts) - 1; i >= 0; i-- {
+		candidate := strings.TrimSpace(parts[i])
+		if candidate == "" {
+			continue
+		}
+		parsed := net.ParseIP(candidate)
+		if parsed == nil {
+			continue
+		}
+		canon := parsed.String()
+		leftmostValid = canon
+		if !isTrustedProxyIP(canon, trusted) {
+			return canon
+		}
+	}
+	return leftmostValid
 }
 
 // CheckAdmission verifies whether an IP is currently banned or exceeding the token-bucket rate limit.

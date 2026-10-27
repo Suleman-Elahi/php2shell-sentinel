@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -104,7 +105,14 @@ func (g *Guard) ScanOnce() int {
 
 			if g.inspectSessionFile(fullPath, info) {
 				mitigatedCount++
-				delete(g.seen, fullPath)
+				if updatedInfo, statErr := os.Stat(fullPath); statErr == nil {
+					g.seen[fullPath] = fileMeta{
+						modTime: updatedInfo.ModTime(),
+						size:    updatedInfo.Size(),
+					}
+				} else {
+					delete(g.seen, fullPath)
+				}
 			} else {
 				g.seen[fullPath] = fileMeta{
 					modTime: info.ModTime(),
@@ -179,6 +187,27 @@ func (g *Guard) inspectSessionFile(path string, info os.FileInfo) bool {
 			)
 			return true
 		}
+		// Sites that explicitly rely on native PHP session.upload_progress for benign
+		// resumable/progress-bar uploads can opt in via allow_benign_upload_progress,
+		// while still blocking PHP code tags (P2S-SESS-CODE), object gadgets (P2S-SESS-MISMATCH),
+		// and session inflation (P2S-SESS-INFLATE).
+		if g.cfg.AllowBenignUploadProgress {
+			return false
+		}
+		if g.cfg.ScrubUploadProgressInPlace {
+			if cleaned, ok := stripUploadProgressEntries(content); ok && len(bytes.TrimSpace(cleaned)) > 0 {
+				g.scrubFileInPlace(
+					path,
+					info.Mode().Perm(),
+					cleaned,
+					"P2S-SESS-UPROG",
+					"CVE-2026-109618/CVE-2026-109619",
+					"Upload-Progress-Armed",
+					"upload_progress state stripped in place from active PHP session file (preserving user session)",
+				)
+				return true
+			}
+		}
 		g.mitigateFile(
 			path,
 			"P2S-SESS-UPROG",
@@ -190,6 +219,154 @@ func (g *Guard) inspectSessionFile(path string, info os.FileInfo) bool {
 	}
 
 	return false
+}
+
+func (g *Guard) scrubFileInPlace(path string, perm os.FileMode, cleaned []byte, ruleID, cve, chain, reason string) {
+	mitigated := false
+	if g.cfg.Mode == config.ModeBlock && g.cfg.DeletePoisonedSess {
+		if g.cfg.QuarantineDir != "" {
+			_ = os.MkdirAll(g.cfg.QuarantineDir, 0o700)
+			qName := fmt.Sprintf("%s.%d.quarantine", filepath.Base(path), time.Now().UnixNano())
+			qPath := filepath.Join(g.cfg.QuarantineDir, qName)
+			copyForensicSample(path, qPath, 64*1024)
+		}
+		if perm == 0 {
+			perm = 0o600
+		}
+		tmpPath := fmt.Sprintf("%s.sentinel-tmp.%d", path, time.Now().UnixNano())
+		if err := os.WriteFile(tmpPath, cleaned, perm); err == nil {
+			if err := os.Rename(tmpPath, path); err == nil {
+				mitigated = true
+				g.logger.Metrics().SessionsCleaned.Add(1)
+			} else {
+				_ = os.Remove(tmpPath)
+			}
+		}
+	}
+
+	g.logger.Log(audit.Event{
+		Timestamp: time.Now().UTC(),
+		Severity:  audit.SeverityCritical,
+		Component: "session-guard",
+		Action:    "session_upload_progress_scrubbed",
+		RuleID:    ruleID,
+		CVE:       cve,
+		Chain:     chain,
+		Path:      path,
+		Message:   reason,
+		Mitigated: mitigated,
+		RiskScore: 100,
+	})
+}
+
+// stripUploadProgressEntries removes `upload_progress_<id>|<serialized_value>` entries
+// from a PHP session payload while keeping all other session variables intact.
+func stripUploadProgressEntries(content []byte) ([]byte, bool) {
+	marker := []byte("upload_progress_")
+	if !bytes.Contains(content, marker) {
+		return content, false
+	}
+
+	var out bytes.Buffer
+	rest := content
+	strippedAny := false
+
+	for len(rest) > 0 {
+		idx := bytes.Index(rest, marker)
+		if idx < 0 {
+			out.Write(rest)
+			break
+		}
+		out.Write(rest[:idx])
+		afterKey := rest[idx:]
+		pipeIdx := bytes.IndexByte(afterKey, '|')
+		if pipeIdx < 0 {
+			return nil, false
+		}
+		valBytes := afterKey[pipeIdx+1:]
+		consumed, ok := skipPHPSerializedValue(valBytes, 0)
+		if !ok {
+			return nil, false
+		}
+		strippedAny = true
+		rest = valBytes[consumed:]
+	}
+
+	if !strippedAny || bytes.Contains(out.Bytes(), marker) {
+		return nil, false
+	}
+	return out.Bytes(), true
+}
+
+func skipPHPSerializedValue(data []byte, depth int) (int, bool) {
+	if len(data) < 2 || depth > 64 {
+		return 0, false
+	}
+	switch data[0] {
+	case 'N':
+		if data[1] == ';' {
+			return 2, true
+		}
+		return 0, false
+	case 'b', 'i', 'd', 'r', 'R':
+		if data[1] != ':' {
+			return 0, false
+		}
+		semi := bytes.IndexByte(data[2:], ';')
+		if semi < 0 {
+			return 0, false
+		}
+		return 2 + semi + 1, true
+	case 's':
+		if data[1] != ':' {
+			return 0, false
+		}
+		colon := bytes.IndexByte(data[2:], ':')
+		if colon <= 0 {
+			return 0, false
+		}
+		strLen, err := strconv.Atoi(string(data[2 : 2+colon]))
+		if err != nil || strLen < 0 {
+			return 0, false
+		}
+		quoteStart := 2 + colon + 1
+		// Expect `"<strLen bytes>";`
+		endPos := quoteStart + 1 + strLen + 2
+		if endPos > len(data) || data[quoteStart] != '"' || data[quoteStart+1+strLen] != '"' || data[quoteStart+1+strLen+1] != ';' {
+			return 0, false
+		}
+		return endPos, true
+	case 'a':
+		if data[1] != ':' {
+			return 0, false
+		}
+		colon := bytes.IndexByte(data[2:], ':')
+		if colon <= 0 {
+			return 0, false
+		}
+		count, err := strconv.Atoi(string(data[2 : 2+colon]))
+		if err != nil || count < 0 || count > 4096 {
+			return 0, false
+		}
+		braceStart := 2 + colon + 1
+		if braceStart >= len(data) || data[braceStart] != '{' {
+			return 0, false
+		}
+		pos := braceStart + 1
+		for i := 0; i < count*2; i++ {
+			step, ok := skipPHPSerializedValue(data[pos:], depth+1)
+			if !ok {
+				return 0, false
+			}
+			pos += step
+		}
+		if pos >= len(data) || data[pos] != '}' {
+			return 0, false
+		}
+		return pos + 1, true
+	default:
+		return 0, false
+	}
 }
 
 func (g *Guard) mitigateFile(path, ruleID, cve, chain, reason string) {

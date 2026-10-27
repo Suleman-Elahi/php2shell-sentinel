@@ -54,6 +54,12 @@ func NewShieldProxy(cfg *config.Config, tracker *intel.Tracker, logger *audit.Lo
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 
+	if tracker != nil {
+		if err := tracker.SetTrustedProxies(cfg.TrustedProxies, cfg.ClientIPHeader); err != nil {
+			return nil, err
+		}
+	}
+
 	sp := &ShieldProxy{
 		cfg:       cfg,
 		inspector: ins,
@@ -64,14 +70,28 @@ func NewShieldProxy(cfg *config.Config, tracker *intel.Tracker, logger *audit.Lo
 
 	origDirector := rp.Director
 	rp.Director = func(req *http.Request) {
+		clientIP := sp.extractClientIP(req)
 		origDirector(req)
 		req.Header.Set("X-Sentinel-Shield", "active")
+		if clientIP != "" {
+			req.Header.Set("X-Real-IP", clientIP)
+		}
+		if req.TLS != nil && req.Header.Get("X-Forwarded-Proto") == "" {
+			req.Header.Set("X-Forwarded-Proto", "https")
+		}
 	}
 
 	rp.ModifyResponse = sp.modifyResponse
 	rp.ErrorHandler = sp.handleProxyError
 
 	return sp, nil
+}
+
+func (sp *ShieldProxy) extractClientIP(r *http.Request) string {
+	if sp.tracker != nil {
+		return sp.tracker.ExtractClientIP(r)
+	}
+	return intel.ExtractClientIP(r)
 }
 
 // SetSuspicionHook registers a callback invoked when the WAF detects a
@@ -84,7 +104,7 @@ func (sp *ShieldProxy) SetSuspicionHook(fn func()) {
 func (sp *ShieldProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sp.logger.Metrics().TotalRequests.Add(1)
 	now := time.Now()
-	clientIP := intel.ExtractClientIP(r)
+	clientIP := sp.extractClientIP(r)
 
 	// 1. Check Behavioral Threat Intelligence admission (Active IP Ban / Token Bucket Rate Limit)
 	allowed, reason, isBanned := sp.tracker.CheckAdmission(clientIP, now)
@@ -274,7 +294,7 @@ func (sp *ShieldProxy) modifyResponse(resp *http.Response) error {
 	method := ""
 	path := ""
 	if resp.Request != nil {
-		clientIP = intel.ExtractClientIP(resp.Request)
+		clientIP = sp.extractClientIP(resp.Request)
 		method = resp.Request.Method
 		if resp.Request.URL != nil {
 			path = resp.Request.URL.Path
@@ -339,7 +359,7 @@ func (sp *ShieldProxy) logVersionScrub(resp *http.Response) {
 	method := ""
 	path := ""
 	if resp.Request != nil {
-		clientIP = intel.ExtractClientIP(resp.Request)
+		clientIP = sp.extractClientIP(resp.Request)
 		method = resp.Request.Method
 		if resp.Request.URL != nil {
 			path = resp.Request.URL.Path
@@ -362,7 +382,7 @@ func (sp *ShieldProxy) logVersionScrub(resp *http.Response) {
 
 func (sp *ShieldProxy) handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 	now := time.Now()
-	clientIP := intel.ExtractClientIP(r)
+	clientIP := sp.extractClientIP(r)
 
 	// Check if our guardedStreamReader aborted an in-flight attack (stalled UAF upload or mid-stream payload)
 	switch {

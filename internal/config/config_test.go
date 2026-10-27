@@ -99,6 +99,27 @@ func TestValidateProxyConfiguration(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "mismatched tls cert without key",
+			mutate: func(cfg *Config) {
+				cfg.ProxyEnabled = true
+				cfg.TLSCertFile = "/etc/ssl/certs/server.crt"
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid trusted_proxies CIDR",
+			mutate: func(cfg *Config) {
+				cfg.TrustedProxies = []string{"not-an-ip"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid trusted_proxies IPs and CIDRs",
+			mutate: func(cfg *Config) {
+				cfg.TrustedProxies = []string{"127.0.0.1", "10.0.0.0/8", "::1/128"}
+			},
+		},
 	}
 
 	for _, tt := range tests {

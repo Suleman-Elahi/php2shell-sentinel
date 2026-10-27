@@ -37,6 +37,10 @@ type Config struct {
 	ProxyEnabled            bool          `json:"proxy_enabled"`
 	ListenAddr              string        `json:"listen_addr"`
 	BackendURL              string        `json:"backend_url"`
+	TLSCertFile             string        `json:"tls_cert_file"`
+	TLSKeyFile              string        `json:"tls_key_file"`
+	TrustedProxies          []string      `json:"trusted_proxies"`
+	ClientIPHeader          string        `json:"client_ip_header"`
 	MaxBodyBytes            int64         `json:"max_body_bytes"`
 	MaxHeaderBytes          int           `json:"max_header_bytes"`
 	InspectWindowBytes      int           `json:"inspect_window_bytes"`
@@ -67,22 +71,26 @@ type Config struct {
 	FirewallBanEnabled bool          `json:"firewall_ban_enabled"`
 
 	// Session File Guard Settings
-	SessionGuardEnabled bool          `json:"session_guard_enabled"`
-	SessionDirs         []string      `json:"session_dirs"`
-	SessionPollInterval time.Duration `json:"session_poll_interval"`
-	MaxSessionFileBytes int64         `json:"max_session_file_bytes"`
-	QuarantineDir       string        `json:"quarantine_dir"`
-	DeletePoisonedSess  bool          `json:"delete_poisoned_sessions"`
+	SessionGuardEnabled        bool          `json:"session_guard_enabled"`
+	SessionDirs                []string      `json:"session_dirs"`
+	SessionPollInterval        time.Duration `json:"session_poll_interval"`
+	MaxSessionFileBytes        int64         `json:"max_session_file_bytes"`
+	QuarantineDir              string        `json:"quarantine_dir"`
+	DeletePoisonedSess         bool          `json:"delete_poisoned_sessions"`
+	ScrubUploadProgressInPlace bool          `json:"scrub_upload_progress_in_place"`
+	AllowBenignUploadProgress  bool          `json:"allow_benign_upload_progress"`
 
 	// Process & Memory Watchdog Settings
-	ProcWatchEnabled   bool          `json:"proc_watch_enabled"`
-	ProcPollInterval   time.Duration `json:"proc_poll_interval"`
-	ProcBurstInterval  time.Duration `json:"proc_burst_interval"`
-	ProcBurstWindow    time.Duration `json:"proc_burst_window"`
-	KillSuspiciousExec bool          `json:"kill_suspicious_exec"`
-	MaxWorkerRSSMB     uint64        `json:"max_worker_rss_mb"`
-	PHPProcessNames    []string      `json:"php_process_names"`
-	BlockedChildNames  []string      `json:"blocked_child_names"`
+	ProcWatchEnabled             bool          `json:"proc_watch_enabled"`
+	ProcPollInterval             time.Duration `json:"proc_poll_interval"`
+	ProcBurstInterval            time.Duration `json:"proc_burst_interval"`
+	ProcBurstWindow              time.Duration `json:"proc_burst_window"`
+	KillSuspiciousExec           bool          `json:"kill_suspicious_exec"`
+	MaxWorkerRSSMB               uint64        `json:"max_worker_rss_mb"`
+	PHPProcessNames              []string      `json:"php_process_names"`
+	BlockedChildNames            []string      `json:"blocked_child_names"`
+	AllowedParentCmdlinePatterns []string      `json:"allowed_parent_cmdline_patterns"`
+	AllowedChildCmdlinePatterns  []string      `json:"allowed_child_cmdline_patterns"`
 
 	// Log & OS Journal Tailer Settings
 	LogWatchEnabled     bool     `json:"log_watch_enabled"`
@@ -107,54 +115,62 @@ func Default() *Config {
 		// Out-of-band host guards are safe to enable by default. The in-line
 		// proxy is opt-in because it must be pointed at the real PHP backend;
 		// enabling it against a guessed/placeholder upstream would break traffic.
-		ProxyEnabled:            false,
-		ListenAddr:              "127.0.0.1:8080",
-		BackendURL:              "http://127.0.0.1:8081",
-		MaxBodyBytes:            8 * 1024 * 1024, // 8 MiB ceiling to prevent OOM bailout
-		MaxHeaderBytes:          32 * 1024,       // 32 KiB header limit
-		InspectWindowBytes:      256 * 1024,      // 256 KiB streaming inspection buffer
-		MaxMultipartParts:       64,              // Blocks 149-900 part heap-spray / OOM chains
-		MaxArrayDepth:           8,               // Blocks 62-64 nested key scanner/OOM probes
-		MaxFilenameLen:          200,             // Blocks 231B zend_string bin spray & >10KB session inflation
-		MultipartChunkTimeout:   900 * time.Millisecond,
-		RequestReadTimeout:      30 * time.Second,
-		MaxConcurrentMultipart:  4, // Blocks 149-connection worker-pinning attacks
-		UploadProgressFieldName: "PHP_SESSION_UPLOAD_PROGRESS",
-		BlockChunkedMultipart:   true,
-		BlockSessionFixation:    true,
-		StripUploadProgress:     true,
-		StripPoweredBy:          true,
-		InspectResponses:        true,
-		ScrubPHPVersionInBody:   true,
-		MaxSessionIDCookieLen:   64, // Blocks 800KB PHPSESSID heap/ASLR leak in Set-Cookie
-		AllowedUploadPaths:      []string{},
-		RateLimitPerSecond:      40.0,
-		RateLimitBurst:          80,
-		BanThresholdScore:       100,
-		BanDuration:             15 * time.Minute,
-		MaxTrackedIPs:           8192,
-		ProbeThreshold:          3,
-		ProbeWindow:             60 * time.Second,
-		FirewallBanEnabled:      false,
-		SessionGuardEnabled:     true,
-		SessionDirs:             defaultSessionDirs(),
-		SessionPollInterval:     250 * time.Millisecond,
-		MaxSessionFileBytes:     4 * 1024 * 1024, // 4 MiB max session file (blocks 30MB Chain E inflation)
-		QuarantineDir:           defaultQuarantineDir(),
-		DeletePoisonedSess:      true,
-		ProcWatchEnabled:        true,
-		ProcPollInterval:        150 * time.Millisecond,
-		ProcBurstInterval:       10 * time.Millisecond,
-		ProcBurstWindow:         5 * time.Second,
-		KillSuspiciousExec:      true,
-		MaxWorkerRSSMB:          0, // 0 = disabled unless configured
-		PHPProcessNames:         defaultPHPProcessNames(),
-		BlockedChildNames:       defaultBlockedChildNames(),
-		LogWatchEnabled:         true,
-		JournalWatchEnabled:     true,
-		WatchLogFiles:           defaultLogFiles(),
-		AutoHardenOnStart:       false,
-		PHPSearchPaths:          defaultPHPSearchPaths(),
+		ProxyEnabled:                 false,
+		ListenAddr:                   "127.0.0.1:8080",
+		BackendURL:                   "http://127.0.0.1:8081",
+		TLSCertFile:                  "",
+		TLSKeyFile:                   "",
+		TrustedProxies:               []string{"127.0.0.1/32", "::1/128"},
+		ClientIPHeader:               "X-Forwarded-For",
+		MaxBodyBytes:                 8 * 1024 * 1024, // 8 MiB ceiling to prevent OOM bailout
+		MaxHeaderBytes:               32 * 1024,       // 32 KiB header limit
+		InspectWindowBytes:           256 * 1024,      // 256 KiB streaming inspection buffer
+		MaxMultipartParts:            64,              // Blocks 149-900 part heap-spray / OOM chains
+		MaxArrayDepth:                8,               // Blocks 62-64 nested key scanner/OOM probes
+		MaxFilenameLen:               200,             // Blocks 231B zend_string bin spray & >10KB session inflation
+		MultipartChunkTimeout:        900 * time.Millisecond,
+		RequestReadTimeout:           30 * time.Second,
+		MaxConcurrentMultipart:       4, // Blocks 149-connection worker-pinning attacks
+		UploadProgressFieldName:      "PHP_SESSION_UPLOAD_PROGRESS",
+		BlockChunkedMultipart:        true,
+		BlockSessionFixation:         true,
+		StripUploadProgress:          true,
+		StripPoweredBy:               true,
+		InspectResponses:             true,
+		ScrubPHPVersionInBody:        true,
+		MaxSessionIDCookieLen:        64, // Blocks 800KB PHPSESSID heap/ASLR leak in Set-Cookie
+		AllowedUploadPaths:           []string{},
+		RateLimitPerSecond:           40.0,
+		RateLimitBurst:               80,
+		BanThresholdScore:            100,
+		BanDuration:                  15 * time.Minute,
+		MaxTrackedIPs:                8192,
+		ProbeThreshold:               3,
+		ProbeWindow:                  60 * time.Second,
+		FirewallBanEnabled:           false,
+		SessionGuardEnabled:          true,
+		SessionDirs:                  defaultSessionDirs(),
+		SessionPollInterval:          250 * time.Millisecond,
+		MaxSessionFileBytes:          4 * 1024 * 1024, // 4 MiB max session file (blocks 30MB Chain E inflation)
+		QuarantineDir:                defaultQuarantineDir(),
+		DeletePoisonedSess:           true,
+		ScrubUploadProgressInPlace:   true,
+		AllowBenignUploadProgress:    false,
+		ProcWatchEnabled:             true,
+		ProcPollInterval:             150 * time.Millisecond,
+		ProcBurstInterval:            10 * time.Millisecond,
+		ProcBurstWindow:              5 * time.Second,
+		KillSuspiciousExec:           true,
+		MaxWorkerRSSMB:               0, // 0 = disabled unless configured
+		PHPProcessNames:              defaultPHPProcessNames(),
+		BlockedChildNames:            defaultBlockedChildNames(),
+		AllowedParentCmdlinePatterns: defaultAllowedParentCmdlinePatterns(),
+		AllowedChildCmdlinePatterns:  []string{},
+		LogWatchEnabled:              true,
+		JournalWatchEnabled:          true,
+		WatchLogFiles:                defaultLogFiles(),
+		AutoHardenOnStart:            false,
+		PHPSearchPaths:               defaultPHPSearchPaths(),
 	}
 	return cfg
 }
@@ -186,21 +202,39 @@ func defaultQuarantineDir() string {
 }
 
 func defaultPHPProcessNames() []string {
+	// Only web SAPI worker binaries are included by default so CLI PHP invocations
+	// (such as Composer, queue workers, or deploy scripts) are not treated as web workers.
+	// Built-in web servers (`php -S ...`) are detected via command-line inspection.
 	return []string{
 		"php-fpm",
 		"php-cgi",
-		"php",
-		"php8.0", "php8.1", "php8.2", "php8.3", "php8.4", "php8.5",
 		"apache2",
 		"httpd",
 		"lshttpd",
 		"frankenphp",
-		"php.exe",
 		"php-cgi.exe",
 		"php-win.exe",
 		"httpd.exe",
 		"w3wp.exe",
 		"caddy.exe",
+	}
+}
+
+func defaultAllowedParentCmdlinePatterns() []string {
+	return []string{
+		"artisan",
+		"composer",
+		"phpunit",
+		"pest",
+		"wp-cli",
+		"drush",
+		"bin/console",
+		"messenger:consume",
+		"queue:work",
+		"queue:listen",
+		"schedule:run",
+		"horizon",
+		"vendor/bin/",
 	}
 }
 
@@ -324,6 +358,24 @@ func (c *Config) ApplyEnv() {
 	if v := os.Getenv("SENTINEL_BACKEND_URL"); v != "" {
 		c.BackendURL = v
 	}
+	if v := os.Getenv("SENTINEL_TLS_CERT_FILE"); v != "" {
+		c.TLSCertFile = v
+	}
+	if v := os.Getenv("SENTINEL_TLS_KEY_FILE"); v != "" {
+		c.TLSKeyFile = v
+	}
+	if v := os.Getenv("SENTINEL_CLIENT_IP_HEADER"); v != "" {
+		c.ClientIPHeader = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("SENTINEL_TRUSTED_PROXIES"); v != "" {
+		var proxies []string
+		for _, p := range strings.Split(v, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				proxies = append(proxies, trimmed)
+			}
+		}
+		c.TrustedProxies = proxies
+	}
 	if v := os.Getenv("SENTINEL_STATUS_ADDR"); v != "" {
 		c.StatusAddr = v
 	}
@@ -388,6 +440,12 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid backend_url %q: must be an absolute http:// or https:// URL", c.BackendURL)
 		}
 	}
+	if (c.TLSCertFile == "") != (c.TLSKeyFile == "") {
+		return fmt.Errorf("both tls_cert_file and tls_key_file must be provided together")
+	}
+	if _, err := ParseTrustedProxies(c.TrustedProxies); err != nil {
+		return err
+	}
 	if c.StatusAddr != "" {
 		host, _, err := net.SplitHostPort(c.StatusAddr)
 		if err != nil {
@@ -440,7 +498,43 @@ func (c *Config) Validate() error {
 	if c.ProcBurstWindow <= 0 {
 		c.ProcBurstWindow = 5 * time.Second
 	}
+	if c.ClientIPHeader == "" {
+		c.ClientIPHeader = "X-Forwarded-For"
+	}
 	return nil
+}
+
+// ParseTrustedProxies parses CIDR blocks or bare IP addresses into a slice of *net.IPNet.
+func ParseTrustedProxies(entries []string) ([]*net.IPNet, error) {
+	nets := make([]*net.IPNet, 0, len(entries))
+	for _, raw := range entries {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		if strings.Contains(s, "/") {
+			_, ipNet, err := net.ParseCIDR(s)
+			if err != nil {
+				return nil, fmt.Errorf("invalid trusted_proxies CIDR %q: %w", raw, err)
+			}
+			nets = append(nets, ipNet)
+			continue
+		}
+		ip := net.ParseIP(s)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid trusted_proxies IP %q", raw)
+		}
+		bits := 128
+		if v4 := ip.To4(); v4 != nil {
+			ip = v4
+			bits = 32
+		}
+		nets = append(nets, &net.IPNet{
+			IP:   ip,
+			Mask: net.CIDRMask(bits, bits),
+		})
+	}
+	return nets, nil
 }
 
 func uniqueStrings(in []string) []string {

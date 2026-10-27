@@ -42,3 +42,47 @@ func TestWatcher_DetectsAndKillsMaliciousPHPChildProcesses(t *testing.T) {
 		t.Fatalf("expected 3 killed PIDs, got %v", killedPIDs)
 	}
 }
+
+func TestWatcher_SparesQueueWorkersComposerAndCLIWhileProtectingBuiltinServer(t *testing.T) {
+	cfg := config.Default()
+	cfg.AllowedChildCmdlinePatterns = []string{"/usr/sbin/sendmail -t"}
+
+	logger := audit.NewBufferLogger(io.Discard, "json")
+	watcher := procwatch.NewWatcher(cfg, logger)
+
+	var killedPIDs []int
+	watcher.SetEnumeratorAndKiller(
+		func() ([]procwatch.ProcInfo, error) {
+			return []procwatch.ProcInfo{
+				{PID: 1, PPID: 0, Name: "systemd", Cmdline: "/sbin/init"},
+				// 1. Laravel queue worker spawning sh -> must NOT be killed
+				{PID: 200, PPID: 1, Name: "php8.2", Cmdline: "php8.2 artisan queue:work --tries=3"},
+				{PID: 201, PPID: 200, Name: "sh", Cmdline: "sh -c /usr/bin/ffmpeg -i in.mp4 out.mp4"},
+				// 2. Composer install spawning curl -> must NOT be killed
+				{PID: 300, PPID: 1, Name: "php", Cmdline: "php /usr/local/bin/composer install --no-dev"},
+				{PID: 301, PPID: 300, Name: "curl", Cmdline: "curl -sS https://repo.packagist.org/packages.json"},
+				// 3. Generic CLI deploy script spawning bash -> must NOT be killed
+				{PID: 400, PPID: 1, Name: "php", Cmdline: "php deploy.php"},
+				{PID: 401, PPID: 400, Name: "bash", Cmdline: "bash -c git pull"},
+				// 4. PHP built-in web server (-S) spawning reverse shell -> MUST be killed
+				{PID: 500, PPID: 1, Name: "php", Cmdline: "php -S 127.0.0.1:8081 -t public"},
+				{PID: 501, PPID: 500, Name: "sh", Cmdline: "sh -c id"},
+				// 5. php-fpm spawning allowlisted child command -> must NOT be killed
+				{PID: 600, PPID: 1, Name: "php-fpm", Cmdline: "php-fpm: pool www"},
+				{PID: 601, PPID: 600, Name: "sh", Cmdline: "sh -c /usr/sbin/sendmail -t"},
+			}, nil
+		},
+		func(pid int) error {
+			killedPIDs = append(killedPIDs, pid)
+			return nil
+		},
+	)
+
+	interventions := watcher.ScanOnce()
+	if interventions != 1 {
+		t.Fatalf("expected exactly 1 intervention (built-in web server shell PID 501), got %d (killed=%v)", interventions, killedPIDs)
+	}
+	if len(killedPIDs) != 1 || killedPIDs[0] != 501 {
+		t.Fatalf("expected only PID 501 to be killed, got %v", killedPIDs)
+	}
+}
