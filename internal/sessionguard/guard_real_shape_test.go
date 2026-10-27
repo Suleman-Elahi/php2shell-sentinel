@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 package sessionguard_test
 
 import (
@@ -72,41 +71,5 @@ func TestSessionGuard_MalformedUploadProgressFallsBackToFullQuarantine(t *testin
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected malformed upload_progress session file to be deleted, stat err = %v", err)
-=======
-package sessionguard
-
-import (
-	"bytes"
-	"testing"
-)
-
-// Industry-realistic session payload: login/cart keys plus the exact shape PHP
-// emits for session.upload_progress while an upload is in flight. The guard
-// must strip only the tracking entry and keep the session usable.
-func TestStripUploadProgressPreservesActiveSession(t *testing.T) {
-	content := []byte("user_id|i:42;csrf|s:32:\"d41d8cd98f00b204e9800998ecf8427e\";" +
-		"upload_progress_fid123|a:5:{s:10:\"start_time\";i:1730000000;s:14:\"content_length\";i:100;" +
-		"s:15:\"bytes_processed\";i:50;s:4:\"done\";b:0;s:4:\"name\";s:6:\"secret\";}")
-	cleaned, ok := stripUploadProgressEntries(content)
-	if !ok {
-		t.Fatalf("expected benign upload_progress entry to be strippable")
-	}
-	if bytes.Contains(cleaned, []byte("upload_progress_")) {
-		t.Fatalf("upload_progress entry not removed: %q", string(cleaned))
-	}
-	for _, keep := range []string{"user_id|i:42;", "csrf|s:32:\"d41d8cd98f00b204e9800998ecf8427e\";"} {
-		if !bytes.Contains(cleaned, []byte(keep)) {
-			t.Fatalf("legitimate session key lost after scrub: missing %q in %q", keep, string(cleaned))
-		}
-	}
-}
-
-// Malformed serialization (wrong string lengths) must be refused so the guard
-// falls back to full quarantine instead of rewriting unpredictable content.
-func TestStripRefusesMalformedSerialization(t *testing.T) {
-	bad := []byte("user_id|i:42;upload_progress_x|a:1:{s:4:\"name\";s:3:\"file\";}")
-	if _, ok := stripUploadProgressEntries(bad); ok {
-		t.Fatalf("expected malformed serialized upload_progress entry to be rejected")
->>>>>>> 3d4e1ec (Add test: guard_real_shape_test.go)
 	}
 }
