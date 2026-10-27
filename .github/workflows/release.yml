@@ -1,0 +1,49 @@
+name: Release binaries
+
+# Rebuilds docs/downloads/* and SHA256SUMS.txt on every push to main so the
+# Github Pages install scripts always serve binaries matching HEAD.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+        id: go
+
+      - name: Build static release binaries
+        run: |
+          CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o docs/downloads/sentinel-linux-amd64 ./cmd/sentinel
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o docs/downloads/sentinel-windows-amd64.exe ./cmd/sentinel
+
+      - name: Refresh checksums
+        run: |
+          cd docs/downloads
+          sha256sum sentinel-linux-amd64 sentinel-windows-amd64.exe sentinel.example.json > SHA256SUMS.txt
+
+      - name: Commit updated binaries (if changed)
+        run: |
+          git config user.name  "release-bot"
+          git config user.email "noreply@github.com"
+          if git diff --quiet -- docs/downloads; then
+            echo "Binaries unchanged - nothing to commit."
+            exit 0
+          fi
+          git add docs/downloads/SHA256SUMS.txt \
+                  docs/downloads/sentinel-linux-amd64 \
+                  docs/downloads/sentinel-windows-amd64.exe
+          git commit -m "rebuild release binaries + checksums from ${GITHUB_SHA::12}"
+          git push origin HEAD:main
