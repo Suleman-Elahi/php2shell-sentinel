@@ -151,8 +151,12 @@ func (w *Watcher) ScanOnce() int {
 	}
 
 	byPID := make(map[int]ProcInfo, len(procs))
+	childrenByPPID := make(map[int][]ProcInfo, len(procs))
 	for _, p := range procs {
 		byPID[p.PID] = p
+		if p.PID > 1 && p.PPID > 0 {
+			childrenByPPID[p.PPID] = append(childrenByPPID[p.PPID], p)
+		}
 	}
 
 	w.mu.Lock()
@@ -225,8 +229,23 @@ func (w *Watcher) ScanOnce() int {
 			continue
 		}
 
+		descendants := collectDescendants(proc.PID, childrenByPPID, selfPID)
+		var killedDescendantPIDs []string
+
 		mitigated := false
 		if w.cfg.Mode == config.ModeBlock && w.cfg.KillSuspiciousExec {
+			// Kill the shell/wrapper and its entire descendant subtree so chained
+			// commands (e.g. `sh -c "echo ...; sleep 30"`) do not survive as orphans under init.
+			for _, desc := range descendants {
+				if matchesAnyPattern(desc.Cmdline, w.allowedChildPatterns) {
+					continue
+				}
+				if err := w.kill(desc.PID); err == nil {
+					w.logger.Metrics().ProcessesKilled.Add(1)
+					killedDescendantPIDs = append(killedDescendantPIDs, fmt.Sprintf("%d", desc.PID))
+				}
+				w.alertedPID[desc.PID] = now
+			}
 			if err := w.kill(proc.PID); err == nil {
 				mitigated = true
 				w.logger.Metrics().ProcessesKilled.Add(1)
@@ -235,6 +254,17 @@ func (w *Watcher) ScanOnce() int {
 
 		w.alertedPID[proc.PID] = now
 		interventions++
+
+		meta := map[string]string{
+			"parent_pid":  fmt.Sprintf("%d", ancestorProc.PID),
+			"parent_name": ancestorProc.Name,
+			"child_pid":   fmt.Sprintf("%d", proc.PID),
+			"child_name":  proc.Name,
+			"cmdline":     proc.Cmdline,
+		}
+		if len(killedDescendantPIDs) > 0 {
+			meta["killed_descendant_pids"] = strings.Join(killedDescendantPIDs, ",")
+		}
 
 		w.logger.Log(audit.Event{
 			Timestamp: now,
@@ -246,13 +276,7 @@ func (w *Watcher) ScanOnce() int {
 			Chain:     "Post-Exploit-RCE",
 			PID:       proc.PID,
 			Message:   fmt.Sprintf("PHP worker %s (PID %d) spawned suspicious child %s (PID %d)", ancestorProc.Name, ancestorProc.PID, proc.Name, proc.PID),
-			Metadata: map[string]string{
-				"parent_pid":  fmt.Sprintf("%d", ancestorProc.PID),
-				"parent_name": ancestorProc.Name,
-				"child_pid":   fmt.Sprintf("%d", proc.PID),
-				"child_name":  proc.Name,
-				"cmdline":     proc.Cmdline,
-			},
+			Metadata:  meta,
 			Mitigated: mitigated,
 			RiskScore: 100,
 		})
@@ -328,10 +352,26 @@ func matchesAnyPattern(cmdline string, patterns []string) bool {
 	return false
 }
 
-func defaultKillProcess(pid int) error {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return err
+func collectDescendants(rootPID int, childrenByPPID map[int][]ProcInfo, selfPID int) []ProcInfo {
+	var out []ProcInfo
+	visited := map[int]struct{}{rootPID: {}}
+	queue := append([]ProcInfo(nil), childrenByPPID[rootPID]...)
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+		if curr.PID <= 1 || curr.PID == selfPID {
+			continue
+		}
+		if _, seen := visited[curr.PID]; seen {
+			continue
+		}
+		visited[curr.PID] = struct{}{}
+		out = append(out, curr)
+		queue = append(queue, childrenByPPID[curr.PID]...)
 	}
-	return p.Kill()
+	return out
+}
+
+func defaultKillProcess(pid int) error {
+	return killProcessOS(pid)
 }

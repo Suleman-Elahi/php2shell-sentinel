@@ -86,3 +86,38 @@ func TestWatcher_SparesQueueWorkersComposerAndCLIWhileProtectingBuiltinServer(t 
 		t.Fatalf("expected only PID 501 to be killed, got %v", killedPIDs)
 	}
 }
+
+func TestWatcher_KillsEntireDescendantSubtreeOfWrappedShell(t *testing.T) {
+	cfg := config.Default()
+
+	logger := audit.NewBufferLogger(io.Discard, "json")
+	watcher := procwatch.NewWatcher(cfg, logger)
+
+	killedSet := make(map[int]bool)
+	watcher.SetEnumeratorAndKiller(
+		func() ([]procwatch.ProcInfo, error) {
+			return []procwatch.ProcInfo{
+				{PID: 1, PPID: 0, Name: "init", Cmdline: "/sbin/init"},
+				{PID: 500, PPID: 1, Name: "apache2", Cmdline: "apache2 -DFOREGROUND"},
+				// Wrapped shell chaining a persistent child (`sleep 30`) and grandchild
+				{PID: 501, PPID: 500, Name: "sh", Cmdline: "sh -c echo pwned; sleep 30"},
+				{PID: 502, PPID: 501, Name: "sleep", Cmdline: "sleep 30"},
+				{PID: 503, PPID: 502, Name: "custom-implant", Cmdline: "/tmp/custom-implant --daemon"},
+			}, nil
+		},
+		func(pid int) error {
+			killedSet[pid] = true
+			return nil
+		},
+	)
+
+	interventions := watcher.ScanOnce()
+	if interventions != 1 {
+		t.Fatalf("expected 1 intervention for the shell tree, got %d", interventions)
+	}
+	for _, wantPID := range []int{501, 502, 503} {
+		if !killedSet[wantPID] {
+			t.Fatalf("expected PID %d in wrapped shell subtree to be killed, killedSet=%v", wantPID, killedSet)
+		}
+	}
+}

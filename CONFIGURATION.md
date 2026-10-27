@@ -89,7 +89,8 @@ Because Sentinel uses Go's standard `time.Duration` encoding in JSON, time inter
 **Why this is safe for production:**
 - **No traffic rerouting:** Your web server continues listening on `:80`/`:443` untouched.
 - **Preserves active user logins:** `"scrub_upload_progress_in_place": true` removes only injected `upload_progress_*` entries from active `sess_*` files while keeping `user_id`, cart, and CSRF session data intact. Confirmed exploit payloads (`<?php`, `|O:` gadgets) are quarantined and deleted immediately.
-- **Spares CLI & queue workers:** `composer`, `php artisan queue:work`, `horizon`, `phpunit`, and `wp-cli` are ignored by default; only web SAPI workers (`php-fpm`, `php-cgi`, `apache2`, `httpd`, `php -S`) are watched for shell spawning.
+- **Spares CLI & queue workers:** `composer`, `php artisan queue:work`, `horizon`, `phpunit`, and `wp-cli` are ignored by default; only web SAPI workers (`php-fpm`, `php-cgi`, `apache2`, `httpd`, `php -S`) are watched for shell spawning. When a web worker spawns a shell wrapper (e.g., `sh -c "...; sleep 30"`), Sentinel terminates both the shell and its entire descendant subtree so child processes cannot survive as orphans under `init`.
+- **Permissions requirement:** Run Sentinel as `root` (the default for `sentinel install`) or as a user/group with write permission on `session_dirs` and `quarantine_dir` so in-place session scrubbing and quarantine can atomically rewrite/remove poisoned `sess_*` files.
 
 ---
 

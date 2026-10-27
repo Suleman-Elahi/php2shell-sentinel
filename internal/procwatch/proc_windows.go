@@ -3,6 +3,7 @@
 package procwatch
 
 import (
+	"os"
 	"syscall"
 	"unsafe"
 )
@@ -67,4 +68,12 @@ func listProcessesOS() ([]ProcInfo, error) {
 	}
 
 	return procs, nil
+}
+
+func killProcessOS(pid int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Kill()
 }

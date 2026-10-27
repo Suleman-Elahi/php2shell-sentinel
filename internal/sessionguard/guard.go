@@ -223,6 +223,7 @@ func (g *Guard) inspectSessionFile(path string, info os.FileInfo) bool {
 
 func (g *Guard) scrubFileInPlace(path string, perm os.FileMode, cleaned []byte, ruleID, cve, chain, reason string) {
 	mitigated := false
+	var meta map[string]string
 	if g.cfg.Mode == config.ModeBlock && g.cfg.DeletePoisonedSess {
 		if g.cfg.QuarantineDir != "" {
 			_ = os.MkdirAll(g.cfg.QuarantineDir, 0o700)
@@ -240,7 +241,19 @@ func (g *Guard) scrubFileInPlace(path string, perm os.FileMode, cleaned []byte, 
 				g.logger.Metrics().SessionsCleaned.Add(1)
 			} else {
 				_ = os.Remove(tmpPath)
+				// Fallback to in-place file truncation/write if directory rename is restricted
+				if wErr := os.WriteFile(path, cleaned, perm); wErr == nil {
+					mitigated = true
+					g.logger.Metrics().SessionsCleaned.Add(1)
+				} else {
+					meta = map[string]string{"error": wErr.Error()}
+				}
 			}
+		} else if wErr := os.WriteFile(path, cleaned, perm); wErr == nil {
+			mitigated = true
+			g.logger.Metrics().SessionsCleaned.Add(1)
+		} else {
+			meta = map[string]string{"error": err.Error()}
 		}
 	}
 
@@ -254,6 +267,7 @@ func (g *Guard) scrubFileInPlace(path string, perm os.FileMode, cleaned []byte, 
 		Chain:     chain,
 		Path:      path,
 		Message:   reason,
+		Metadata:  meta,
 		Mitigated: mitigated,
 		RiskScore: 100,
 	})
@@ -371,6 +385,7 @@ func skipPHPSerializedValue(data []byte, depth int) (int, bool) {
 
 func (g *Guard) mitigateFile(path, ruleID, cve, chain, reason string) {
 	mitigated := false
+	var meta map[string]string
 	if g.cfg.Mode == config.ModeBlock && g.cfg.DeletePoisonedSess {
 		// Optionally quarantine a small forensic copy before unlinking
 		if g.cfg.QuarantineDir != "" {
@@ -382,6 +397,8 @@ func (g *Guard) mitigateFile(path, ruleID, cve, chain, reason string) {
 		if err := os.Remove(path); err == nil {
 			mitigated = true
 			g.logger.Metrics().SessionsCleaned.Add(1)
+		} else {
+			meta = map[string]string{"error": err.Error()}
 		}
 	}
 
@@ -395,6 +412,7 @@ func (g *Guard) mitigateFile(path, ruleID, cve, chain, reason string) {
 		Chain:     chain,
 		Path:      path,
 		Message:   reason,
+		Metadata:  meta,
 		Mitigated: mitigated,
 		RiskScore: 100,
 	})

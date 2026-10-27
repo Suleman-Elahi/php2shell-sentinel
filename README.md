@@ -246,7 +246,9 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o b
   other session variables remain intact. Sites that intentionally rely on native
   PHP `session.upload_progress` can set `allow_benign_upload_progress: true`
   while keeping protection against `<?php`, `|O:`, and `> 4 MiB` session
-  inflation.
+  inflation. Ensure the Sentinel process runs as `root` (or a user/group with
+  write permission on `session_dirs` and `quarantine_dir`) so in-place scrubbing
+  and quarantine removal succeed.
 - The proxy validates `listen_addr` and `backend_url` at startup. If the backend
   is unreachable, Sentinel logs a `backend_unreachable` warning in the journal
   and continues running; fix `backend_url` or disable the proxy with
